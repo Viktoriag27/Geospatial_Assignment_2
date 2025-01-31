@@ -1,0 +1,31 @@
+---
+title: "Geospatial Assignment 2"
+output: html_document
+date: '`r Sys.Date()`'
+author: "Irache Vergara, Gretchen Moulton, Viktoria Gagua, Daniela Guggenberger"
+output: 
+  html_document:
+    toc: true          # Enable table of contents
+    toc_depth: 2       # Allow headings up to level 2
+    number_sections: true # Number sections and subheadings
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Avoid overlapping environment variables
+rm(list=ls())
+```
+
+#Part 1: 
+```{r}
+
+```
+
+#Part 2:
+```{r}
+
+```
+
