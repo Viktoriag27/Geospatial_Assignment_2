@@ -9,8 +9,10 @@ library(maps)
 library(dplyr)
 
 # Load Market Coordinates Data
-market_file <- "/Users/irachevergaraochoa/Desktop/Master - BSE/Geospatial analysis/Assignments/Assignment 2/Data/MktCoords.xlsx"
-market_data <- read_excel(market_file)
+url <- "https://raw.githubusercontent.com/Viktoriag27/Geospatial_Assignment_2/main/Data/Part%202/MktCoords.xlsx"
+temp_file <- tempfile(fileext = ".xlsx")  
+download.file(url, temp_file, mode = "wb") 
+market_data <- read_excel(temp_file) 
 
 # Convert to sf object
 market_sf <- st_as_sf(market_data, coords = c("longitude", "latitude"), crs = 4326)
@@ -38,8 +40,10 @@ ggplot() +
   )
 
 # Load Price Data
-price_file <- "/Users/irachevergaraochoa/Desktop/Master - BSE/Geospatial analysis/Assignments/Assignment 2/Data/PriceMaster4GAMS.xlsx"
-price_data <- read_excel(price_file, sheet = 1)
+url2 <- "https://raw.githubusercontent.com/Viktoriag27/Geospatial_Assignment_2/main/Data/Part%202/PriceMaster4GAMS.xlsx"
+temp_file2 <- tempfile(fileext = ".xlsx")  
+download.file(url2, temp_file2, mode = "wb") 
+price_data <- read_excel(temp_file2, sheet=1) 
 
 # Convert numeric price columns (ignore first 4 columns)
 price_data <- price_data %>%
@@ -65,4 +69,6 @@ merged_data <- market_sf %>%
 print(head(merged_data))
 
 # Save Merged Data
-write.csv(merged_data, "/Users/irachevergaraochoa/Desktop/Master - BSE/Geospatial analysis/Assignments/Assignment 2/Data/Merged_Market_Price_Data.csv", row.names = FALSE)
+#write.csv(merged_data, "/Users/irachevergaraochoa/Desktop/Master - BSE/Geospatial analysis/Assignments/Assignment 2/Data/Merged_Market_Price_Data.csv", row.names = FALSE)
+
+
