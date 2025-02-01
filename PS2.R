@@ -1,1 +1,333 @@
-PS2
+#PS2
+library(ggplot2)
+library(sf)
+library(dplyr)
+library(RColorBrewer)
+library(gridExtra)
+library(scales)
+
+
+pop <- st_read("/Users/danielaguggenberger/Documents/Dokumente - MacBook Air von Daniela/BSE/GeoSpatial/PS2/data/ne_110m_populated_places/ne_110m_populated_places.shp")
+countries <- st_read("/Users/danielaguggenberger/Documents/Dokumente - MacBook Air von Daniela/BSE/GeoSpatial/PS2/data/ne_110m_admin_0_countries/ne_110m_admin_0_countries.shp")
+countries <- st_as_sf(countries)
+airports <- st_read("/Users/danielaguggenberger/Documents/Dokumente - MacBook Air von Daniela/BSE/GeoSpatial/PS2/data/ne_10m_airports/ne_10m_airports.shp")
+airports <- st_as_sf(airports)
+airports <- st_transform(airports, crs = 4326)
+ports <- st_read("/Users/danielaguggenberger/Documents/Dokumente - MacBook Air von Daniela/BSE/GeoSpatial/PS2/data/ne_10m_ports/ne_10m_ports.shp")
+ports <- st_as_sf(ports)
+ports <- st_transform(ports, crs = 4326)
+locations <- st_read("/Users/danielaguggenberger/Documents/Dokumente - MacBook Air von Daniela/BSE/GeoSpatial/PS2/data/ne_10m_populated_places_simple/ne_10m_populated_places_simple.shp")
+
+
+
+
+# Plot the world map
+ggplot(data = countries) +
+  geom_sf(fill = "lightblue", color = "black") +  # Fill color and borders
+  theme_minimal() + 
+  labs(title = "World Map")
+
+
+# Plot population places
+ggplot(pop, aes(x = LONGITUDE, y = LATITUDE)) +
+  geom_point(color = "blue", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "Scatter Plot of Locations", x = "Longitude", y = "Latitude")
+
+#map and pop places
+ggplot() +
+  # Plot world map
+  geom_sf(data = countries, fill = "lightblue", color = "black") +
+  # Plot scatter points from pop dataset
+  geom_point(data = pop, aes(x = LONGITUDE, y = LATITUDE), color = "blue", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "World Map with Locations", x = "Longitude", y = "Latitude")
+
+#locations on map
+ggplot() +
+  # Plot world map
+  geom_sf(data = countries, fill = "lightblue", color = "black") +
+  # Plot airports on top
+  geom_sf(data = locations, color = "yellow", size = 1) +
+  theme_minimal() +
+  labs(title = "World Map with Locations")
+
+
+#airports on map
+ggplot() +
+  # Plot world map
+  geom_sf(data = countries, fill = "lightblue", color = "black") +
+  # Plot airports on top
+  geom_sf(data = airports, color = "yellow", size = 1) +
+  theme_minimal() +
+  labs(title = "World Map with Airports")
+
+#ports on map
+ggplot() +
+  # Plot world map
+  geom_sf(data = countries, fill = "lightblue", color = "black") +
+  # Plot airports on top
+  geom_sf(data = ports, color = "red", size = 1) +
+  theme_minimal() +
+  labs(title = "World Map with Ports")
+
+
+
+#population
+summary(countries$POP_EST)
+
+ggplot(data = countries) +
+  geom_sf(aes(fill = POP_EST), color = "black", size = 0.2) +  # Fill based on population
+  scale_fill_viridis_b(option = "plasma", trans = "log", name = "Population", 
+                       breaks = c(1e6, 1e7, 1e8, 1e9),  # Define readable breaks
+                       labels = c("1M", "10M", "100M", "1B")) +  # Format labels
+  theme_minimal() +
+  labs(title = "World Population by Country",
+       subtitle = "Based on Estimated Population (pop_est)",
+       caption = "Source: Natural Earth / Your Dataset") +
+  theme(legend.position = "right",  # Move legend to the right side
+        legend.text = element_text(size = 10),  # Increase text size
+        legend.title = element_text(size = 12, face = "bold"),  # Bold legend title
+        legend.key.height = unit(1, "cm"))  
+
+
+#______________________________________________________histogram______________________________________
+countries_clean <- st_drop_geometry(countries)
+
+# Summarize the total population by continent
+continent_population <- countries_clean %>%
+  group_by(CONTINENT) %>%
+  summarize(total_population = sum(POP_EST, na.rm = TRUE))  # Remove NA values
+
+# Create the bar plot for total population by continent
+ggplot(countries_clean, aes(x = CONTINENT, y = POP_EST, fill = NAME)) +
+  geom_bar(stat = "identity", position = "stack", show.legend = FALSE) +  # Stack countries within continents
+  labs(title = "Total Population by Continent (with individual country colors)",
+       x = "Continent",
+       y = "Population Estimate") +
+  scale_y_continuous(labels = scales::comma) +  # Format y-axis with commas
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+        legend.position = "none") +  # Remove legend (or you can keep it for color identification)
+  scale_fill_viridis_d()  # Use a color palette for countries (e.g., "viridis")
+
+
+#individual stuff later on more efficient
+# 
+# #histogram for each continent individually
+# north_america <- countries_clean %>% filter(CONTINENT == "North America")
+# # Create the histogram for North America
+# ggplot(north_america, aes(x = reorder(NAME, POP_EST), y = POP_EST)) + 
+#   geom_bar(stat = "identity", fill = "steelblue") +  # Bar plot for population
+#   labs(title = "Population Distribution of North American Countries",
+#        x = "Country",
+#        y = "Population Estimate") +
+#   scale_y_continuous(labels = scales::comma) +  # Format y-axis with commas
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 90, hjust = 1))
+# 
+# #south america
+# south_america <- countries_clean %>% filter(CONTINENT == "South America")
+# # Create the histogram for South America
+# ggplot(south_america, aes(x = reorder(NAME, POP_EST), y = POP_EST)) + 
+#   geom_bar(stat = "identity", fill = "steelblue") +  # Bar plot for population
+#   labs(title = "Population Distribution of South American Countries",
+#        x = "Country",
+#        y = "Population Estimate") +
+#   scale_y_continuous(labels = scales::comma) +  # Format y-axis with commas
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+# 
+# #asia
+# asia <- countries_clean %>% filter(CONTINENT == "Asia")
+# # Create the histogram for Asia
+# ggplot(asia, aes(x = reorder(NAME, POP_EST), y = POP_EST)) + 
+#   geom_bar(stat = "identity", fill = "steelblue") +  # Bar plot for population
+#   labs(title = "Population Distribution of Asian Countries",
+#        x = "Country",
+#        y = "Population Estimate") +
+#   scale_y_continuous(labels = scales::comma) +  # Format y-axis with commas
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 90, hjust = 1))
+# 
+# #europe
+# europe <- countries_clean %>% filter(CONTINENT == "Europe")
+# # Create the histogram for Europe
+# ggplot(europe, aes(x = reorder(NAME, POP_EST), y = POP_EST)) + 
+#   geom_bar(stat = "identity", fill = "steelblue") +  # Bar plot for population
+#   labs(title = "Population Distribution of European Countries",
+#        x = "Country",
+#        y = "Population Estimate") +
+#   scale_y_continuous(labels = scales::comma) +  # Format y-axis with commas
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+# 
+# #africa
+# africa <- countries_clean %>% filter(CONTINENT == "Africa")
+# # Create the histogram for Africa
+# ggplot(africa, aes(x = reorder(NAME, POP_EST), y = POP_EST)) + 
+#   geom_bar(stat = "identity", fill = "steelblue") +  # Bar plot for population
+#   labs(title = "Population Distribution of African Countries",
+#        x = "Country",
+#        y = "Population Estimate") +
+#   scale_y_continuous(labels = scales::comma) +  # Format y-axis with commas
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+
+# All the continent stuff together
+plot_population_distribution <- function(continent_name) {
+  continent_data <- countries %>% filter(CONTINENT == continent_name)
+  
+  ggplot(continent_data, aes(x = reorder(NAME, POP_EST), y = POP_EST)) + 
+    geom_bar(stat = "identity", fill = "steelblue") +  # Bar plot for population
+    labs(title = paste("Population Distribution of", continent_name, "Countries"),
+         x = "Country",
+         y = "Population") +
+    scale_y_continuous(labels = scales::comma) +  # Format y-axis with commas
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+}
+# List of continents
+continents <- c("North America", "South America", "Asia", "Europe", "Africa")
+# Apply the function to each continent and create the plots
+plot_north_america <- plot_population_distribution("North America")
+plot_south_america <- plot_population_distribution("South America")
+plot_asia <- plot_population_distribution("Asia")
+plot_europe <- plot_population_distribution("Europe")
+plot_africa <- plot_population_distribution("Africa")
+# Display each plot separately
+print(plot_north_america)
+print(plot_south_america)
+print(plot_asia)
+print(plot_europe)
+print(plot_africa)
+
+#_______________________________________________end histogram______________________________________
+
+#relative terms
+plot_population_distribution <- function(continent_name) {
+  continent_data <- countries %>%
+    filter(CONTINENT == continent_name) %>%
+    mutate(Pop_Percent = (POP_EST / sum(POP_EST, na.rm = TRUE)) * 100)  # Calculate % of total
+  
+  ggplot(continent_data, aes(x = reorder(NAME, Pop_Percent), y = Pop_Percent)) + 
+    geom_bar(stat = "identity", fill = "steelblue") +  # Bar plot for % population
+    labs(title = paste("Population Distribution (%) of", continent_name, "Countries"),
+         x = "Country",
+         y = "Percentage of Continent's Population") +
+    scale_y_continuous(labels = scales::percent_format(scale = 1)) +  # Format as percentages
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+}
+
+# List of continents
+continents <- c("North America", "South America", "Asia", "Europe", "Africa")
+
+# Apply the function to each continent and create the plots
+plot_north_america <- plot_population_distribution("North America")
+plot_south_america <- plot_population_distribution("South America")
+plot_asia <- plot_population_distribution("Asia")
+plot_europe <- plot_population_distribution("Europe")
+plot_africa <- plot_population_distribution("Africa")
+
+# Display each plot separately
+print(plot_north_america)
+print(plot_south_america)
+print(plot_asia)
+print(plot_europe)
+print(plot_africa)
+
+#_______________________________________________end histogram______________________________________
+
+
+top_locations <- locations %>%
+  group_by(sov0name) %>%  # Group by country
+  slice_max(order_by = pop_max, n = 20, with_ties = FALSE) %>%  # Keep top 20 per country
+  ungroup()  # Ungroup to avoid grouped structure
+
+#top locations on map
+ggplot() +
+  # Plot world map
+  geom_sf(data = countries, fill = "lightblue", color = "black") +
+  # Plot airports on top
+  geom_sf(data = top_locations, color = "yellow", size = 1) +
+  theme_minimal() +
+  labs(title = "World Map with Locations")
+
+
+
+
+
+
+#_______________________________________________airports________________________________
+#merging with countries based on geometry didnt work, appearently 15, 16 and 19 have an invalid 
+#geometry file but I cant figure out whats wrong
+
+#therefore use this package to assign each airport to a country
+library(rnaturalearth)
+library(rnaturalearthdata)
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+airports <- st_transform(airports, st_crs(world))
+airports_with_country <- st_join(airports, world, join = st_intersects)
+
+airports_with_country$sovereignt
+
+
+
+#check how many airports per country
+airport_count_by_country <- airports_with_country %>%
+  group_by(sovereignt) %>%
+  summarise(airport_count = n())
+
+print(airport_count_by_country)
+
+
+#check which have more than 20
+countries_with_more_than_20_airports <- airport_count_by_country %>%
+  filter(airport_count > 20)
+
+print(countries_with_more_than_20_airports)
+
+
+#check which airports didnt get a country assigned
+airports_with_na_sovereignt <- airports_with_country %>%
+  filter(is.na(sovereignt))
+
+print(airports_with_na_sovereignt)
+
+
+# there is 69 airports that didnt get a country assigned, as I see for now mostry because they 
+#are some small islands or simmilar
+# for now delete them; handle /include them at a later point
+
+airports_cleaned <- airports_with_country %>%
+  filter(!is.na(sovereignt))
+
+
+airport_count_by_country <- airports_with_country %>%
+  group_by(sovereignt) %>%
+  summarise(airport_count = n())
+
+print(airport_count_by_country)
+
+
+#group by country
+airport_count_by_country_cleaned <- airports_cleaned %>%
+  group_by(sovereignt) %>%
+  summarise(airport_count = n())
+
+
+#check which have more than 20
+countries_over20_air_clean <- airport_count_by_country_cleaned %>%
+  filter(airport_count > 20)
+
+print(countries_over20_air_clean)
+
+#now have to select top 20 airports by country
+#But by what criteria should that be selected?
+
+
+
