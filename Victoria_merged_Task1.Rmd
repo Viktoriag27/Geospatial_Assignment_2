@@ -1,0 +1,312 @@
+---
+title: "Geospatial Data Science Assignement 2 - Task 1"
+author: "Daniela"
+date: "2025-02-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load libraries
+
+```{r libraries, echo=TRUE, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(sf)
+library(dplyr)
+library(RColorBrewer)
+library(gridExtra)
+library(rnaturalearth)
+library(rnaturalearthdata)
+```
+
+## Load data
+
+```{r data, echo=TRUE, message=FALSE, warning=FALSE}
+
+pop <- st_read("~/Desktop/Victoria/DSDM/Term2/Geospatial/Assignment_2/Geospatial_Assignment_2/Data/ne_110m_populated_places/ne_110m_populated_places.shp")
+countries <- st_read("~/Desktop/Victoria/DSDM/Term2/Geospatial/Assignment_2/Geospatial_Assignment_2/Data/ne_110m_admin_0_countries/ne_110m_admin_0_countries.shp")
+countries <- st_as_sf(countries)
+airports <- st_read("~/Desktop/Victoria/DSDM/Term2/Geospatial/Assignment_2/Geospatial_Assignment_2/Data/ne_10m_airports/ne_10m_airports.shp")
+airports <- st_as_sf(airports)
+airports <- st_transform(airports, crs = 4326)
+ports <- st_read("~/Desktop/Victoria/DSDM/Term2/Geospatial/Assignment_2/Geospatial_Assignment_2/Data/ne_10m_ports/ne_10m_ports.shp")
+ports <- st_as_sf(ports)
+ports <- st_transform(ports, crs = 4326)
+locations <- st_read("~/Desktop/Victoria/DSDM/Term2/Geospatial/Assignment_2/Geospatial_Assignment_2/Data/ne_10m_populated_places/ne_10m_populated_places.shp")
+
+```
+## Graphs and Visuals
+```{r plots}
+# Plot the world map
+ggplot(data = countries) +
+  geom_sf(fill = "lightblue", color = "black") +  # Fill color and borders
+  theme_minimal() + 
+  labs(title = "World Map")
+
+#airports on map
+ggplot() +
+  # Plot world map
+  geom_sf(data = countries, fill = "lightblue", color = "black") +
+  # Plot airports on top
+  geom_sf(data = airports, color = "yellow", size = 1) +
+  theme_minimal() +
+  labs(title = "World Map with Airports")
+
+#ports on map
+ggplot() +
+  # Plot world map
+  geom_sf(data = countries, fill = "lightblue", color = "black") +
+  # Plot airports on top
+  geom_sf(data = ports, color = "red", size = 1) +
+  theme_minimal() +
+  labs(title = "World Map with Ports")
+```
+
+```{r plot population}
+ggplot(data = countries) +
+  geom_sf(aes(fill = POP_EST), color = "black", size = 0.2) +  # Fill based on population
+  scale_fill_viridis_b(option = "plasma", trans = "log", name = "Population", 
+                       breaks = c(1e6, 1e7, 1e8, 1e9),  # Define readable breaks
+                       labels = c("1M", "10M", "100M", "1B")) +  # Format labels
+  theme_minimal() +
+  labs(title = "World Population by Country",
+       subtitle = "Based on Estimated Population (pop_est)",
+       caption = "Source: Natural Earth / Your Dataset") +
+  theme(legend.position = "right",  # Move legend to the right side
+        legend.text = element_text(size = 10),  # Increase text size
+        legend.title = element_text(size = 12, face = "bold"),  # Bold legend title
+        legend.key.height = unit(1, "cm"))  
+```
+
+```{r plot hist}
+plot_population_distribution <- function(continent_name) {
+  continent_data <- countries %>% filter(CONTINENT == continent_name)
+  
+  ggplot(continent_data, aes(x = reorder(NAME, POP_EST), y = POP_EST)) + 
+    geom_bar(stat = "identity", fill = "steelblue") +  # Bar plot for population
+    labs(title = paste("Population Distribution of", continent_name, "Countries"),
+         x = "Country",
+         y = "Population") +
+    scale_y_continuous(labels = scales::comma) +  # Format y-axis with commas
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+}
+
+# List of continents
+continents <- c("North America", "South America", "Asia", "Europe", "Africa")
+
+# Apply the function to each continent and create the plots
+plot_north_america <- plot_population_distribution("North America")
+plot_south_america <- plot_population_distribution("South America")
+plot_asia <- plot_population_distribution("Asia")
+plot_europe <- plot_population_distribution("Europe")
+plot_africa <- plot_population_distribution("Africa")
+
+# Display each plot separately
+print(plot_north_america)
+print(plot_south_america)
+print(plot_asia)
+print(plot_europe)
+print(plot_africa)
+```
+
+```{r hist rel}
+plot_population_distribution <- function(continent_name) {
+  continent_data <- countries %>%
+    filter(CONTINENT == continent_name) %>%
+    mutate(Pop_Percent = (POP_EST / sum(POP_EST, na.rm = TRUE)) * 100)  # Calculate % of total
+  
+  ggplot(continent_data, aes(x = reorder(NAME, Pop_Percent), y = Pop_Percent)) + 
+    geom_bar(stat = "identity", fill = "steelblue") +  # Bar plot for % population
+    labs(title = paste("Population Distribution (%) of", continent_name, "Countries"),
+         x = "Country",
+         y = "Percentage of Continent's Population") +
+    scale_y_continuous(labels = scales::percent_format(scale = 1)) +  # Format as percentages
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+}
+
+# List of continents
+continents <- c("North America", "South America", "Asia", "Europe", "Africa")
+
+# Apply the function to each continent and create the plots
+plot_north_america <- plot_population_distribution("North America")
+plot_south_america <- plot_population_distribution("South America")
+plot_asia <- plot_population_distribution("Asia")
+plot_europe <- plot_population_distribution("Europe")
+plot_africa <- plot_population_distribution("Africa")
+
+# Display each plot separately
+print(plot_north_america)
+print(plot_south_america)
+print(plot_asia)
+print(plot_europe)
+print(plot_africa)
+```
+
+## Locations
+
+```{r locations}
+#locations on map
+ggplot() +
+  # Plot world map
+  geom_sf(data = countries, fill = "lightblue", color = "black") +
+  # Plot airports on top
+  geom_sf(data = locations, color = "yellow", size = 1) +
+  theme_minimal() +
+  labs(title = "World Map with Locations")
+```
+
+## Average Distances' Histogram (Airports)
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+# ----- 1. Assign a Country to Each Location -----
+# Here we only extract a couple of fields needed
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+locations_with_country <- st_join(locations, world[, c("sovereignt", "continent")], join = st_intersects)
+
+# Remove any locations that did not join to a country
+locations_with_country <- locations_with_country %>% filter(!is.na(sovereignt))
+```
+
+### Airports
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+#assign each airport a country
+airports <- st_transform(airports, st_crs(world))
+airports_with_country <- st_join(airports, world, join = st_intersects)
+
+airports_with_country$sovereignt
+
+
+#check how many airports per country
+airport_count_by_country <- airports_with_country %>%
+  group_by(sovereignt) %>%
+  summarise(airport_count = n())
+
+print(airport_count_by_country)
+
+
+#check which have more than 20
+countries_with_more_than_20_airports <- airport_count_by_country %>%
+  filter(airport_count > 20)
+
+print(countries_with_more_than_20_airports)
+
+
+#check which airports didnt get a country assigned
+airports_with_na_sovereignt <- airports_with_country %>%
+  filter(is.na(sovereignt))
+
+print(airports_with_na_sovereignt)
+
+
+# there is 69 airports that didnt get a country assigned, as I see for now mostry because they 
+#are some small islands or simmilar
+# for now delete them; handle /include them at a later point
+
+airports_cleaned <- airports_with_country %>%
+  filter(!is.na(sovereignt))
+```
+
+```{r}
+# ----- 2. Subset Airports: 20 Airports per Country -----
+# We already have airports with country info in 'airports_cleaned'.
+# Now, for each country, select only 20 airports (if there are more than 20).
+airports_subset <- airports_cleaned %>%
+  group_by(sovereignt) %>%
+  slice_head(n = 20) %>%   # or slice_sample(n = 20) for a random sample
+  ungroup()
+```
+
+```{r}
+# ----- 3. Project Both Layers to a Metric CRS -----
+# Use EPSG:3857 (meters) for distance calculations.
+airports_proj <- st_transform(airports_subset, crs = 3857)
+locations_proj <- st_transform(locations_with_country, crs = 3857)
+```
+
+```{r}
+# ----- 4. Compute the Nearest-Location Distance for Each Airport -----
+# For each airport, we find the distance to the closest location in the same country.
+# We group by country so that each airport is only compared to locations from the same country.
+
+airports_with_distance <- airports_proj %>%
+  group_by(sovereignt) %>%
+  group_modify(~ {
+    this_country <- .y$sovereignt
+    # Filter locations from the same country, explicitly using .data$sovereignt
+    locs_country <- locations_proj %>% 
+      filter(.data$sovereignt == this_country)
+    
+    if (nrow(locs_country) == 0) {
+      .x$nearest_location_distance <- NA_real_
+    } else {
+      # Compute distance matrix (in meters)
+      dmat <- st_distance(.x, locs_country)
+      # For each airport, select the minimum distance
+      .x$nearest_location_distance <- apply(dmat, 1, min)
+    }
+    .x  # Return the modified group data
+  }) %>%
+  ungroup()
+
+# Convert to kilometers:
+airports_with_distance <- airports_with_distance %>%
+  mutate(nearest_location_km = nearest_location_distance / 1000)
+
+# The results
+print(airports_with_distance)
+```
+
+```{r}
+# ----- 5. Inspect the Results -----
+print(airports_with_distance)
+
+
+if (!"nearest_location_km" %in% names(airports_with_distance)) {
+  airports_with_distance <- airports_with_distance %>%
+    mutate(nearest_location_km = nearest_location_distance / 1000)
+}
+
+# Aggregate: compute the average distance per country
+country_avg_distance <- airports_with_distance %>%
+  st_drop_geometry() %>%
+  group_by(sovereignt, continent) %>%
+  summarise(avg_distance_km = mean(nearest_location_km, na.rm = TRUE)) %>%
+  ungroup()
+# Inspect the summary
+print(country_avg_distance)
+```
+
+### Zoomed in on 200 km
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+ggplot(country_avg_distance, aes(x = avg_distance_km)) +
+  geom_histogram(binwidth = 10, fill = "orange", color = "black") +
+  coord_cartesian(xlim = c(0, 200)) +   # <--- Zoomed in on 200 km
+  facet_wrap(~ continent, scales = "free_y") +
+  labs(title = "Histogram of Country-Level Average Distances",
+       x = "Average Distance (km)",
+       y = "Number of Countries") +
+  theme_minimal()
+
+```
+
+### Zoomed in on 100 km
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+ggplot(country_avg_distance, aes(x = avg_distance_km)) +
+  geom_histogram(binwidth = 10, fill = "red", color = "black") +
+  coord_cartesian(xlim = c(0, 100)) +   # <--- Zoomed in on 100 km
+  facet_wrap(~ continent, scales = "free_y") +
+  labs(title = "Histogram of Country-Level Average Distances",
+       x = "Average Distance (km)",
+       y = "Number of Countries") +
+  theme_minimal()
+
+```
