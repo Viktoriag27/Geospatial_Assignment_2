@@ -1,0 +1,177 @@
+---
+title: "Minimum distance of market places"
+author: "Irache Vergara"
+date: "2025-02-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load packages
+```{r setup1, echo=TRUE, message=FALSE, warning=FALSE}
+# Clean the environment
+rm = list(ls())
+rm(list = ls())
+
+# Library
+library(readxl)
+library(sf)
+library(ggplot2)
+library(maps)
+library(dplyr)
+library(readr)
+library(rnaturalearth)
+
+```
+
+## Prepare data
+
+```{r setup2}
+# Download and read the market coordinates data from a GitHub raw file
+url <- "https://raw.githubusercontent.com/Viktoriag27/Geospatial_Assignment_2/main/Data/Part%202/MktCoords.xlsx"
+temp_file <- tempfile(fileext = ".xlsx")  
+download.file(url, temp_file, mode = "wb") 
+market_data <- read_excel(temp_file)
+```
+
+```{r setup3}
+# Convert the market coordinates dataframe into a spatial sf object using longitude and latitude
+market_sf <- st_as_sf(market_data, coords = c("longitude", "latitude"), crs = 4326)
+print(market_sf)
+
+world_map <- map_data("world")
+```
+
+
+```{r setup4}
+# Filter for Africa’s 
+africa_map <- subset(world_map, long > -25 & long < 60 & lat > -40 & lat < 40)
+
+# Create plot
+ggplot() +
+  geom_polygon(data = africa_map, aes(x = long, y = lat, group = group), fill = "gray90", color = "white") +
+  geom_sf(data = market_sf, color = "red", size = 2, alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Market Locations") +  # Remove x and y labels
+  theme(
+    axis.title = element_blank(),  # Remove axis titles
+    axis.text = element_blank(),   # Remove axis text
+    axis.ticks = element_blank(),   # Remove axis ticks
+    plot.title = element_text(hjust = 0.5, face = "bold") 
+  )
+```
+
+
+```{r setup5}
+# Download and read the price data from a GitHub raw file
+price_file <- "https://raw.githubusercontent.com/Viktoriag27/Geospatial_Assignment_2/main/Data/Part%202/PriceMaster4GAMS.xlsx"
+temp_file <- tempfile(fileext = ".xlsx")
+download.file(price_file, temp_file, mode = "wb")
+price_data <- read_excel(temp_file)
+
+head(price_data)
+```
+
+
+```{r setup6}
+# Convert price columns to numeric format, ignoring the first 4 columns 
+price_data <- price_data %>%
+  mutate(across(5:ncol(.), as.numeric, .names = "num_{.col}"))
+```
+
+
+To calculate average market prices, we have taken the average price across all columns, assuming they represent different years, months, or days. Additionally, we compute the average price per market code (mktcode), without differentiating by crop type. This is because, for our analysis, we are interested in understanding market-level price trends rather than specific crop variations.
+
+
+```{r setup7}
+# Compute the average price per market code by averaging across all price columns, 
+# assuming they represent different time periods (e.g., years, months, or days),
+# without differentiating by crop type since it's not relevant for our analysis.
+average_price <- price_data %>%
+  rowwise() %>%
+  mutate(avg_price = mean(c_across(5:ncol(.)), na.rm = TRUE)) %>%
+  ungroup() %>%
+  select(mktcode, avg_price) %>%
+  group_by(mktcode) %>%
+  summarise(avg_price = mean(avg_price, na.rm = TRUE))
+
+# Print first few rows to verify the computed average prices
+print(head(average_price))
+```
+
+```{r setup8}
+# Merge market coordinates with the computed average prices 
+# using "mktcode" as the common key to link both datasets.
+merged_data <- market_sf %>%
+  left_join(average_price, by = "mktcode")
+
+# Print the first few rows to verify that the merge was successful
+print(head(merged_data))
+```
+# Calculate minimum distances
+## Coast line
+```{r setup9}
+# Load coastline data from the Natural Earth dataset as an sf object 
+coastline <- ne_coastline(scale = "medium", returnclass = "sf")
+```
+
+```{r setup10}
+# Calculate minimum distance from market places to coastline
+merged_data$dist_to_coast <- apply(st_distance(merged_data, coastline), 1, min)  
+
+
+# Convert distance from meters to kilometers
+merged_data$dist_to_coast <- merged_data$dist_to_coast / 1000
+```
+
+### Check the minimum distance calculated
+```{r setup11, warning=FALSE}
+# Create graph to check if the minimum distance is correctly calculated
+
+# Extract longitude and latitude from the geometry column of the sf object
+merged_data <- merged_data %>%
+  mutate(longitude = st_coordinates(.)[,1], 
+         latitude = st_coordinates(.)[,2])
+
+# Filter the dataset to only include markets within Africa's bounding box
+merged_data_africa <- merged_data %>%
+  filter(longitude > -25 & longitude < 60 & latitude > -40 & latitude < 40)
+
+# Filter Coastline for Africa Only
+coastline_africa <- coastline %>%
+  st_crop(xmin = -25, xmax = 60, ymin = -40, ymax = 40)
+
+# Only include Africa
+africa_map <- subset(world_map, long > -25 & long < 60 & lat > -40 & lat < 40)
+```
+
+```{r setup12}
+# Create map
+ggplot() +
+  geom_polygon(data = africa_map, aes(x = long, y = lat, group = group), 
+               fill = "gray90", color = "white") +  # Africa background
+  geom_sf(data = coastline_africa, color = "blue", size = 0.5) +  # Coastline in blue
+  geom_sf(data = merged_data_africa, aes(color = dist_to_coast), size = 2, alpha = 0.7) +  # Market points
+  scale_color_viridis_c(option = "plasma") +  # Better color scale
+  coord_sf(xlim = c(-25, 60), ylim = c(-40, 40), expand = FALSE) +  # Restrict to Africa
+  theme_void() +  # Removes grid lines and background
+  labs(title = "Market Distance to Coast", color = "Distance (km)") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))  # Center title
+```
+
+### Create scatter plot that relates distance with coastline
+```{r setup14}
+# Create scatter plot that relates minimum distance with coast line
+ggplot(merged_data, aes(x = dist_to_coast, y = avg_price)) +
+  geom_point(alpha = 0.7, color = "blue") +  # Scatter points
+  geom_smooth(method = "lm", color = "red", se = TRUE) +  # Linear trend line
+  theme_minimal() +
+  labs(title = "Market Prices vs. Minimum Distance to Coast",
+       x = "Distance to Coast (km)",
+       y = "Average Market Price") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+The scatter plot does not reveal a clear pattern between market prices and distance to the coast. While the trend line suggests a slight positive relationship, the effect appears weak, with significant variation in prices at both short and long distances. The wide spread of data points and the broad confidence interval indicate that distance alone is not a strong predictor of market prices, suggesting that other factors, such as transportation infrastructure, local demand, or trade policies, may play a more significant role.
