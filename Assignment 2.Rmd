@@ -1,31 +1,597 @@
 ---
 title: "Geospatial Assignment 2"
-output: html_document
-date: '`r Sys.Date()`'
-author: "Irache Vergara, Gretchen Moulton, Viktoria Gagua, Daniela Guggenberger"
 output: 
   html_document:
     toc: true          # Enable table of contents
     toc_depth: 2       # Allow headings up to level 2
     number_sections: true # Number sections and subheadings
+date: '`r Sys.Date()`'
+author: "Irache Vergara, Gretchen Moulton, Viktoria Gagua, Daniela Guggenberger"
 ---
-
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+chooseCRANmirror(graphics = FALSE, ind = 1)
 ```
+
+## Load libraries
+
+```{r libraries, echo=TRUE, message=FALSE, warning=FALSE}
+rm(list = ls())
+
+# Library
+library(readxl)
+library(sf)
+library(ggplot2)
+library(maps)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(osmdata)
+library(remotes)
+library(afrilearndata)
+library(RColorBrewer)
+library(gridExtra)
+```
+
+## Load data
+
+```{r data, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Define the base URL for raw shapefiles on GitHub
+github_base <- "/vsicurl/https://raw.githubusercontent.com/Viktoriag27/Geospatial_Assignment_2/main/data"
+
+# Define file paths for each dataset
+pop <- st_read(paste0(github_base, "/ne_110m_populated_places/ne_110m_populated_places.shp"))
+countries <- st_read(paste0(github_base, "/ne_110m_admin_0_countries/ne_110m_admin_0_countries.shp"))
+airports <- st_read(paste0(github_base, "/ne_10m_airports/ne_10m_airports.shp"))
+ports <- st_read(paste0(github_base, "/ne_10m_ports/ne_10m_ports.shp"))
+locations <- st_read(paste0(github_base, "/ne_10m_populated_places/ne_10m_populated_places.shp"))
+
+# Convert and transform spatial data if needed
+countries <- st_as_sf(countries)
+airports <- st_as_sf(airports)
+airports <- st_transform(airports, crs = 4326)
+ports <- st_as_sf(ports)
+ports <- st_transform(ports, crs = 4326)
+
+```
+## Graphs and Visuals
+```{r plots}
+# Plot the world map
+ggplot(data = countries) +
+  geom_sf(fill = "lightblue", color = "black") +  # Fill color and borders
+  theme_minimal() + 
+  labs(title = "World Map")
+
+#airports on map
+ggplot() +
+  # Plot world map
+  geom_sf(data = countries, fill = "lightblue", color = "black") +
+  # Plot airports on top
+  geom_sf(data = airports, color = "yellow", size = 1) +
+  theme_minimal() +
+  labs(title = "World Map with Airports")
+
+#ports on map
+ggplot() +
+  # Plot world map
+  geom_sf(data = countries, fill = "lightblue", color = "black") +
+  # Plot airports on top
+  geom_sf(data = ports, color = "red", size = 1) +
+  theme_minimal() +
+  labs(title = "World Map with Ports")
+```
+
+```{r plot population}
+ggplot(data = countries) +
+  geom_sf(aes(fill = POP_EST), color = "black", size = 0.2) +  # Fill based on population
+  scale_fill_viridis_b(option = "plasma", trans = "log", name = "Population", 
+                       breaks = c(1e6, 1e7, 1e8, 1e9),  # Define readable breaks
+                       labels = c("1M", "10M", "100M", "1B")) +  # Format labels
+  theme_minimal() +
+  labs(title = "World Population by Country",
+       subtitle = "Based on Estimated Population (pop_est)",
+       caption = "Source: Natural Earth / Your Dataset") +
+  theme(legend.position = "right",  # Move legend to the right side
+        legend.text = element_text(size = 10),  # Increase text size
+        legend.title = element_text(size = 12, face = "bold"),  # Bold legend title
+        legend.key.height = unit(1, "cm"))  
+```
+
+```{r plot hist}
+plot_population_distribution <- function(continent_name) {
+  continent_data <- countries %>% filter(CONTINENT == continent_name)
+  
+  ggplot(continent_data, aes(x = reorder(NAME, POP_EST), y = POP_EST)) + 
+    geom_bar(stat = "identity", fill = "steelblue") +  # Bar plot for population
+    labs(title = paste("Population Distribution of", continent_name, "Countries"),
+         x = "Country",
+         y = "Population") +
+    scale_y_continuous(labels = scales::comma) +  # Format y-axis with commas
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+}
+
+# List of continents
+continents <- c("North America", "South America", "Asia", "Europe", "Africa")
+
+# Apply the function to each continent and create the plots
+plot_north_america <- plot_population_distribution("North America")
+plot_south_america <- plot_population_distribution("South America")
+plot_asia <- plot_population_distribution("Asia")
+plot_europe <- plot_population_distribution("Europe")
+plot_africa <- plot_population_distribution("Africa")
+
+# Display each plot separately
+print(plot_north_america)
+print(plot_south_america)
+print(plot_asia)
+print(plot_europe)
+print(plot_africa)
+```
+
+```{r hist rel}
+plot_population_distribution <- function(continent_name) {
+  continent_data <- countries %>%
+    filter(CONTINENT == continent_name) %>%
+    mutate(Pop_Percent = (POP_EST / sum(POP_EST, na.rm = TRUE)) * 100)  # Calculate % of total
+  
+  ggplot(continent_data, aes(x = reorder(NAME, Pop_Percent), y = Pop_Percent)) + 
+    geom_bar(stat = "identity", fill = "steelblue") +  # Bar plot for % population
+    labs(title = paste("Population Distribution (%) of", continent_name, "Countries"),
+         x = "Country",
+         y = "Percentage of Continent's Population") +
+    scale_y_continuous(labels = scales::percent_format(scale = 1)) +  # Format as percentages
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+}
+
+# List of continents
+continents <- c("North America", "South America", "Asia", "Europe", "Africa")
+
+# Apply the function to each continent and create the plots
+plot_north_america <- plot_population_distribution("North America")
+plot_south_america <- plot_population_distribution("South America")
+plot_asia <- plot_population_distribution("Asia")
+plot_europe <- plot_population_distribution("Europe")
+plot_africa <- plot_population_distribution("Africa")
+
+# Display each plot separately
+print(plot_north_america)
+print(plot_south_america)
+print(plot_asia)
+print(plot_europe)
+print(plot_africa)
+```
+
+## Locations
+
+```{r locations}
+#locations on map
+ggplot() +
+  # Plot world map
+  geom_sf(data = countries, fill = "lightblue", color = "black") +
+  # Plot airports on top
+  geom_sf(data = locations, color = "yellow", size = 1) +
+  theme_minimal() +
+  labs(title = "World Map with Locations")
+```
+
+## Average Distances' Histogram (Airports)
+
 
 ```{r}
-# Avoid overlapping environment variables
-rm(list=ls())
+world <- ne_countries(scale = "medium", returnclass = "sf")
+# Spatially join the population table with world to add country info
+pop_with_country <- st_join(pop, 
+                            world[, c("sovereignt", "continent")],
+                            join = st_intersects)
+
+# Remove any rows that did not join to a country
+pop_with_country <- pop_with_country %>% 
+  filter(!is.na(sovereignt))
+
+# For each country, select the top 20 populated locations (using POP_MAX)
+top20_pop <- pop_with_country %>%
+  group_by(sovereignt) %>%                # Group by country name
+  slice_max(order_by = POP_MAX,           # Order each group by the POP_MAX column
+            n = 20,                     # Keep the top 20
+            with_ties = FALSE) %>%       # Exclude ties beyond the 20th entry
+  ungroup()
+
 ```
 
-#Part 1: 
+### Airports
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+#assign each airport a country
+airports <- st_transform(airports, st_crs(world))
+airports_with_country <- st_join(airports, world, join = st_intersects)
+
+airports_with_country$sovereignt
+
+#check how many airports per country
+airport_count_by_country <- airports_with_country %>%
+  group_by(sovereignt) %>%
+  summarise(airport_count = n())
+
+print(airport_count_by_country)
+
+airports_cleaned <- airports_with_country %>%
+  filter(!is.na(sovereignt))
+```
 ```{r}
 
+# First, let's see what columns we have in airports_cleaned
+print("Columns in airports_cleaned:")
+names(airports_cleaned)
+
+# Now let's check step by step
+pop_airport_pairs <- top20_pop %>%
+  group_by(sovereignt) %>%
+  mutate(matching_airports = list(airports_cleaned[airports_cleaned$sovereignt == first(sovereignt), ])) %>%
+  unnest(matching_airports, names_repair = "unique_quiet", names_sep = "_airport") 
+
+# Check what columns we actually have
+print("Columns in pop_airport_pairs:")
+names(pop_airport_pairs)
 ```
 
-#Part 2:
+
+
 ```{r}
 
+within_country_distances <- pop_airport_pairs %>%
+  select(
+    sovereignt,
+    city = NAME,
+    airport = matching_airports_airportname.x,
+    geometry,
+    geometry_airport = matching_airports_airportgeometry
+  ) %>%
+  rowwise() %>%  # Process each row individually
+  mutate(
+    distance_km = as.numeric(st_distance(geometry, geometry_airport))/1000
+  ) %>%
+  ungroup() %>%  # Remove rowwise grouping
+  arrange(sovereignt, distance_km)
 ```
 
+
+```{r}
+country_avg_distances <- within_country_distances %>%
+  group_by(sovereignt) %>%
+  summarise(
+    avg_distance_km = mean(distance_km)
+  ) %>%
+  arrange(avg_distance_km)
+
+# Let's look at the results
+print(country_avg_distances)
+
+# Create continent-wise data
+continent_distances <- country_avg_distances %>%
+  left_join(
+    pop_airport_pairs %>% 
+      st_drop_geometry() %>%  # Remove the geometry to make it a regular dataframe
+      select(sovereignt, continent) %>% 
+      distinct(),
+    by = "sovereignt"
+  )
+
+print(continent_distances)
+
+```
+
+
+```{r}
+
+
+ggplot(continent_distances, aes(x = avg_distance_km)) +
+  geom_histogram(bins = 10, fill = "red", color = "black") +
+  facet_wrap(~continent) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 0.5, size = 8),  
+    axis.text.y = element_text(size = 8),  
+    strip.text = element_text(size = 10),  # Continent labels size
+    panel.grid.minor = element_blank(),    
+    plot.title = element_text(size = 14)   # Title size
+  ) +
+  scale_x_continuous(
+    breaks = seq(0, 4000, by = 1000),    
+    labels = seq(0, 4000, by = 1000)      
+  ) +
+  scale_y_continuous(
+    breaks = seq(0, 25, by = 5)           # Set specific y-axis breaks
+  ) +
+  labs(
+    x = "Average Distance (km)",
+    y = "Count",
+    title = "Distribution of Average Airport Distances by Continent"
+  )
+
+## THE OUTLIERS IN THE HISTOGRAMS ARE PRESENT SINCE THERE ARE COUNTED THE TERRITORIES WHICH BELONG TO EUROPEAN COUNTRIES, FOR EXAMPLE QUEEN BEATRIZ INTERNATIONAL AIRPORT SO OUR FUNCTION CALCULATES DISTANCE BETWEEN AMSTERDAM AND DUTCH CARIBBEAN ISLAND OF ARUBA
+```
+
+## Prepare data
+
+```{r setup2}
+# Download and read the market coordinates data from a GitHub raw file
+url <- "https://raw.githubusercontent.com/Viktoriag27/Geospatial_Assignment_2/main/Data/Part%202/MktCoords.xlsx"
+temp_file <- tempfile(fileext = ".xlsx")  
+download.file(url, temp_file, mode = "wb") 
+market_data <- read_excel(temp_file)
+```
+
+```{r setup3}
+# Convert the market coordinates dataframe into a spatial sf object using longitude and latitude
+market_sf <- st_as_sf(market_data, coords = c("longitude", "latitude"), crs = 4326)
+print(market_sf)
+
+world_map <- map_data("world")
+```
+
+
+```{r setup4}
+# Filter for Africa’s 
+africa_map <- subset(world_map, long > -25 & long < 60 & lat > -40 & lat < 40)
+
+# Create plot
+ggplot() +
+  geom_polygon(data = africa_map, aes(x = long, y = lat, group = group), fill = "gray90", color = "white") +
+  geom_sf(data = market_sf, color = "red", size = 2, alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Market Locations") +  # Remove x and y labels
+  theme(
+    axis.title = element_blank(),  # Remove axis titles
+    axis.text = element_blank(),   # Remove axis text
+    axis.ticks = element_blank(),   # Remove axis ticks
+    plot.title = element_text(hjust = 0.5, face = "bold") 
+  )
+```
+
+
+```{r setup5}
+# Download and read the price data from a GitHub raw file
+price_file <- "https://raw.githubusercontent.com/Viktoriag27/Geospatial_Assignment_2/main/Data/Part%202/PriceMaster4GAMS.xlsx"
+temp_file <- tempfile(fileext = ".xlsx")
+download.file(price_file, temp_file, mode = "wb")
+price_data <- read_excel(temp_file)
+
+head(price_data)
+```
+
+
+```{r setup6}
+# Convert price columns to numeric format, ignoring the first 4 columns 
+price_data <- price_data %>%
+  mutate(across(5:ncol(.), as.numeric, .names = "num_{.col}"))
+```
+
+
+To calculate average market prices, we have taken the average price across all columns, assuming they represent different years, months, or days. Additionally, we compute the average price per market code (mktcode), without differentiating by crop type. This is because, for our analysis, we are interested in understanding market-level price trends rather than specific crop variations.
+
+
+```{r setup7}
+# Compute the average price per market code by averaging across all price columns, 
+# assuming they represent different time periods (e.g., years, months, or days),
+# without differentiating by crop type since it's not relevant for our analysis.
+average_price <- price_data %>%
+  rowwise() %>%
+  mutate(avg_price = mean(c_across(5:ncol(.)), na.rm = TRUE)) %>%
+  ungroup() %>%
+  select(mktcode, avg_price) %>%
+  group_by(mktcode) %>%
+  summarise(avg_price = mean(avg_price, na.rm = TRUE))
+
+# Print first few rows to verify the computed average prices
+print(head(average_price))
+```
+
+```{r setup8}
+# Merge market coordinates with the computed average prices 
+# using "mktcode" as the common key to link both datasets.
+merged_data <- market_sf %>%
+  left_join(average_price, by = "mktcode")
+
+# Print the first few rows to verify that the merge was successful
+print(head(merged_data))
+```
+# Calculate minimum distances
+## Coast line
+
+```{r setup9}
+# Load coastline data from the Natural Earth dataset as an sf object 
+coastline <- ne_coastline(scale = "medium", returnclass = "sf")
+```
+
+```{r setup10}
+# Calculate minimum distance from market places to coastline
+merged_data$dist_to_coast <- apply(st_distance(merged_data, coastline), 1, min)  
+
+
+# Convert distance from meters to kilometers
+merged_data$dist_to_coast <- merged_data$dist_to_coast / 1000
+```
+
+### Check the minimum distance calculated
+
+```{r setup11, warning=FALSE}
+# Create graph to check if the minimum distance is correctly calculated
+
+# Extract longitude and latitude from the geometry column of the sf object
+merged_data <- merged_data %>%
+  mutate(longitude = st_coordinates(.)[,1], 
+         latitude = st_coordinates(.)[,2])
+
+# Filter the dataset to only include markets within Africa's bounding box
+merged_data_africa <- merged_data %>%
+  filter(longitude > -25 & longitude < 60 & latitude > -40 & latitude < 40)
+
+# Filter Coastline for Africa Only
+coastline_africa <- coastline %>%
+  st_crop(xmin = -25, xmax = 60, ymin = -40, ymax = 40)
+
+# Only include Africa
+africa_map <- subset(world_map, long > -25 & long < 60 & lat > -40 & lat < 40)
+```
+
+```{r setup12}
+# Create map
+ggplot() +
+  geom_polygon(data = africa_map, aes(x = long, y = lat, group = group), 
+               fill = "gray90", color = "white") +  # Africa background
+  geom_sf(data = coastline_africa, color = "blue", size = 0.5) +  # Coastline in blue
+  geom_sf(data = merged_data_africa, aes(color = dist_to_coast), size = 2, alpha = 0.7) +  # Market points
+  scale_color_viridis_c(option = "plasma") +  # Better color scale
+  coord_sf(xlim = c(-25, 60), ylim = c(-40, 40), expand = FALSE) +  # Restrict to Africa
+  theme_void() +  # Removes grid lines and background
+  labs(title = "Market Distance to Coast", color = "Distance (km)") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))  # Center title
+```
+
+### Create scatter plot that relates average prices with coastline
+
+```{r setup14}
+# Create scatter plot that relates average prices with distance to coast line
+ggplot(merged_data, aes(x = dist_to_coast, y = avg_price)) +
+  geom_point(alpha = 0.7, color = "blue") +  # Scatter points
+  geom_smooth(method = "lm", color = "red", se = TRUE) +  # Linear trend line
+  theme_minimal() +
+  labs(title = "Market Prices vs. Minimum Distance to Coast",
+       x = "Distance to Coast (km)",
+       y = "Average Market Price") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+The scatter plot does not reveal a clear pattern between market prices and distance to the coast. While the trend line suggests a slight positive relationship, the effect appears weak, with significant variation in prices at both short and long distances. The wide spread of data points and the broad confidence interval indicate that distance alone is not a strong predictor of market prices, suggesting that other factors, such as transportation infrastructure, local demand, or trade policies, may play a more significant role.
+
+## Roads
+### Calculate the minimum distance from markets to nearest roads
+We now gather road data from Natural Earth. We filter on roads in Africa using the continent file and calculate the nearest road by first calculating the distance from each market to each road. Then we store the nearest roads with the shortest distances. We extract these roads and calculate the distance from market to nearest road in km. Finally we inspect our data to make sure the process ran smoothly. 
+```{r}
+# Define the URL to the shapefile on GitHub
+shp_url <- "/vsicurl/https://raw.githubusercontent.com/Viktoriag27/Geospatial_Assignment_2/main/Data/ne_10m_roads/ne_10m_roads.shp"
+# Read the shapefile directly from the URL
+road_data <- st_read(shp_url)
+
+#Filter on raods in Africa
+road_data<- road_data %>%
+  filter(continent == "Africa")
+
+# Calculate the distance between each market point and all road geometries
+distances <- st_distance(merged_data, road_data)
+
+# Identify the nearest road for each market
+nearest_road_index <- apply(distances, 1, which.min)
+
+# Extract the nearest road geometries
+nearest_roads <- road_data[nearest_road_index, ]
+
+# Add the nearest road geometry to the merged_data dataframe
+merged_data$nearest_road_geom <- nearest_roads$geometry
+
+# Calculate the distance to the nearest road in km
+merged_data$distance_to_nearest_road <- as.numeric(apply(distances, 1, min)/1000)
+
+# View our changes in merged_data
+head(merged_data)
+```
+
+For fun, we map the distance from markets to the nearest road. 
+
+```{r}
+# Create map
+ggplot() +
+  geom_polygon(data = africa_map, aes(x = long, y = lat, group = group), 
+               fill = "gray90", color = "white") +  # Africa background
+  geom_sf(data = road_data, color = "green", size = 0.5) + 
+  geom_sf(data = merged_data, aes(color = distance_to_nearest_road), size = 2, alpha = 0.7) +  # Market points
+  scale_color_viridis_c(option = "cividis") +  # Better color scale
+  coord_sf(xlim = c(-25, 60), ylim = c(-40, 40), expand = FALSE) +  # Restrict to Africa
+  theme_void() +  # Removes grid lines and background
+  labs(title = "Market Distance to the Nearest Road", color = "Distance (km)") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))  # Center title
+```
+
+### Create scatter plot that relates average prices with nearest road
+
+```{r}
+# Create scatter plot that relates average prices with distance to nearest road
+ggplot(merged_data, aes(x = distance_to_nearest_road, y = avg_price)) +
+  geom_point(alpha = 0.7, color = "blue") +  # Scatter points
+  geom_smooth(method = "lm", color = "green", se = TRUE) +  # Linear trend line
+  theme_minimal() +
+  labs(title = "Market Prices vs. Minimum Distance to Road",
+       x = "Distance to the Nearest Road (km)",
+       y = "Average Market Price") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+From this scatter plot, we detect no relationship between the average price of goods at the market and the distance to the nearest road. The trend line appears to have a positive slope but this is due to an outlier. Most markets are relatively close to roads and thus there are no identifiable trends in market pricing due to road access. 
+
+## Airports
+
+To gather data on airports in Africa, I used open source data from the afrimapr project and filtered on medium and large airports in Africa. I originally tried to use natural earth data; however, as there was no continent variable, I attempted to filter on airports in Africa by filtering on the bounding box. This created issues when I mapped my data as it also showed airports outside of Africa, such as on the Arabian Peninsula, that were within the bounding box. While it did not impact the distance calculation, it aesthetically did not look as organized or clear. I also tried to use st_within or st_intersect but encountered issues. Using the afrimapr data allowed for the simplest method and allowed me to map the markets and airports, which adds additional understanding to this project. 
+
+```{r}
+# Load the dataset for African airports
+data("afriairports")
+
+# We select relevant columns, filter on large and medium airports, ensure the geometry is treated as points, and that the correct CRS is being used
+africa_airports <- afriairports %>%
+  select(name, country_name, geometry,type) %>%
+  filter(type %in% c("large_airport", "medium_airport")) %>% 
+  st_as_sf() %>%  # Ensure it remains an sf object
+  st_transform(crs = 4326)  # Optional: Set CRS to WGS84 (if needed)
+
+# View the first few rows to ensure its correct
+print(head(africa_airports))
+```
+
+### Calculate the minimum distance from markets to nearest airport
+
+```{r}
+# Calculate minimum distance from market places to airport
+merged_data$dist_to_airport <- apply(st_distance(merged_data, africa_airports), 1, min)  
+
+# Convert distance from meters to kilometers
+merged_data$dist_to_airport <- merged_data$dist_to_airport / 1000
+
+# View the results of our calculation
+print(head(merged_data))
+```
+We map the distance from markets to the nearest airport.  
+```{r}
+library(ggplot2)
+# Create map
+ggplot() +
+  geom_polygon(data = africa_map, aes(x = long, y = lat, group = group), 
+               fill = "gray90", color = "white") +  # Africa background
+  geom_sf(data = africa_airports, color = "red", size = 0.5) +  # Airports in blue
+  geom_sf(data = merged_data, aes(color = dist_to_airport), size = 2, alpha = 0.7) +  # Market points
+  scale_color_viridis_c(option = "magma") +  # Better color scale
+  coord_sf(xlim = c(-25, 60), ylim = c(-40, 40), expand = FALSE) +  # Restrict to Africa
+  theme_void() +  # Removes grid lines and background
+  labs(title = "Market Distance to Airport", color = "Distance (km)") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))  # Center title
+```
+
+### Create scatter plot that relates average prices with nearest airport
+
+```{r}
+# Create scatter plot that relates average prices with distance to airports
+ggplot(merged_data, aes(x = dist_to_airport, y = avg_price)) +
+  geom_point(alpha = 0.7, color = "blue") +  # Scatter points
+  geom_smooth(method = "lm", color = "pink", se = TRUE) +  # Linear trend line
+  theme_minimal() +
+  labs(title = "Market Prices vs. Minimum Distance to Airport",
+       x = "Distance to Airport (km)",
+       y = "Average Market Price") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+Observing our results from the scatter plot, it is unclear if there is a relationship between the average price of goods at the market and the distance to the nearest airport. The trend line moves slightly downward, indicating a slight negative correlation as with price as distance increases. However, our data contains many higher and lower contradictory outliers. 
