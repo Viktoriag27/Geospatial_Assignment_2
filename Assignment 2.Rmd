@@ -401,7 +401,7 @@ merged_data <- market_sf %>%
 print(head(merged_data))
 ```
 
-## Calculate minimum distances
+## Calculate Minimum Distances to Market Places
 
 ### Coast line
 
@@ -535,7 +535,7 @@ ggplot(merged_data, aes(x = distance_to_nearest_road, y = avg_price)) +
 
 From this scatter plot, we detect no relationship between the average price of goods at the market and the distance to the nearest road. The trend line appears to have a positive slope but this is due to an outlier. Most markets are relatively close to roads and thus there are no identifiable trends in market pricing due to road access. 
 
-## Airports
+### Airports
 
 To gather data on airports in Africa, I used open source data from the afrimapr project and filtered on medium and large airports in Africa. I originally tried to use natural earth data; however, as there was no continent variable, I attempted to filter on airports in Africa by filtering on the bounding box. This created issues when I mapped my data as it also showed airports outside of Africa, such as on the Arabian Peninsula, that were within the bounding box. While it did not impact the distance calculation, it aesthetically did not look as organized or clear. I also tried to use st_within or st_intersect but encountered issues. Using the afrimapr data allowed for the simplest method and allowed me to map the markets and airports, which adds additional understanding to this project. 
 
