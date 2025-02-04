@@ -400,8 +400,10 @@ merged_data <- market_sf %>%
 # Print the first few rows to verify that the merge was successful
 print(head(merged_data))
 ```
-# Calculate minimum distances
-## Coast line
+
+## Calculate minimum distances
+
+### Coast line
 
 ```{r setup9}
 # Load coastline data from the Natural Earth dataset as an sf object 
@@ -469,7 +471,7 @@ ggplot(merged_data, aes(x = dist_to_coast, y = avg_price)) +
 
 The scatter plot does not reveal a clear pattern between market prices and distance to the coast. While the trend line suggests a slight positive relationship, the effect appears weak, with significant variation in prices at both short and long distances. The wide spread of data points and the broad confidence interval indicate that distance alone is not a strong predictor of market prices, suggesting that other factors, such as transportation infrastructure, local demand, or trade policies, may play a more significant role.
 
-## Roads
+### Roads
 ### Calculate the minimum distance from markets to nearest roads
 We now gather road data from Natural Earth. We filter on roads in Africa using the continent file and calculate the nearest road by first calculating the distance from each market to each road. Then we store the nearest roads with the shortest distances. We extract these roads and calculate the distance from market to nearest road in km. Finally we inspect our data to make sure the process ran smoothly. 
 ```{r}
