@@ -114,13 +114,15 @@ ggplot(data = countries) +
 
 Now we want to aggregate the population from the populated places/ location downloaded from the website so we get the population on country level.
 In order to plot it as a map afterwards we need to get the Multipoligon objects that visualise the shape of the country as well since they are not part of the populated places data. Therefore we use the world package from R to be able to do the plots as we want them and then sum up the population numbers from all the populated places within a country.
-
 ```{r plot aggregated population}
-sf.world <- ne_countries(scale = "medium", returnclass = "sf")
+#data(world)
+#sf.world <- world
 
-#Only keep the columns in sf.world df that are relevant to this analysis (iso_a2, name_long, and geometry)
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+#Only keep the columns in sf.world df that are relevant to this analysis (iso_a2, name_long, and geom)
 sf.world <- sf.world %>%
-  select(iso_a2, name_long, geometry, continent)
+  select(iso_a2, name_long, geom, continent)
 
 #sum up the pop by country
 summed_population <- locations %>%
@@ -566,7 +568,6 @@ The scatter plot does not reveal a clear pattern between market prices and dista
 ### Roads
 ### Calculate the minimum distance from markets to nearest roads
 We now gather road data from Natural Earth. We filter on roads in Africa using the continent file and calculate the nearest road by first calculating the distance from each market to each road. Then we store the nearest roads with the shortest distances. We extract these roads and calculate the distance from market to nearest road in km. Finally we inspect our data to make sure the process ran smoothly. 
-
 ```{r}
 # Define the URL to the shapefile on GitHub
 shp_url <- "/vsicurl/https://raw.githubusercontent.com/Viktoriag27/Geospatial_Assignment_2/main/Data/ne_10m_roads/ne_10m_roads.shp"
