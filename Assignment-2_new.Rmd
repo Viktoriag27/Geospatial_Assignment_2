@@ -22,17 +22,24 @@ rm(list = ls())
 library(readxl)
 library(sf)
 library(ggplot2)
+install.packages("maps")
 library(maps)
 library(dplyr)
 library(tidyr)
 library(readr)
 library(rnaturalearth)
 library(rnaturalearthdata)
+install.packages("osmdata")
 library(osmdata)
+install.packages("remotes")
 library(remotes)
-library(afrilearndata)
+install.packages("afrilearndata")
+#library(afrilearndata)
+install.packages("RColorBrewer")
 library(RColorBrewer)
 library(gridExtra)
+install.packages("countrycode")
+library(countrycode)
 ```
 
 ## Load data
@@ -47,7 +54,7 @@ pop <- st_read(paste0(github_base, "/ne_110m_populated_places/ne_110m_populated_
 countries <- st_read(paste0(github_base, "/ne_110m_admin_0_countries/ne_110m_admin_0_countries.shp"))
 airports <- st_read(paste0(github_base, "/ne_10m_airports/ne_10m_airports.shp"))
 ports <- st_read(paste0(github_base, "/ne_10m_ports/ne_10m_ports.shp"))
-locations <- st_read(paste0(github_base, "/ne_10m_populated_places/ne_10m_populated_places.shp"))
+locations <- st_read(paste0(github_base, "/ne_10m_populated_places_simple/ne_10m_populated_places_simple.shp"))
 
 # Convert and transform spatial data if needed
 countries <- st_as_sf(countries)
@@ -58,6 +65,8 @@ ports <- st_transform(ports, crs = 4326)
 
 ```
 ## Graphs and Visuals
+To get a better feeling for the data we first plot the world map, the airports and the ports.
+We decided to continue to work with airports.
 ```{r plots}
 # Plot the world map
 ggplot(data = countries) +
@@ -84,54 +93,75 @@ ggplot() +
   labs(title = "World Map with Ports")
 ```
 
+## Population 
+
+On the Natrual Earth website, we found a dataset called countries which already held the population on country level, so we first plotted that. 
 ```{r plot population}
 ggplot(data = countries) +
   geom_sf(aes(fill = POP_EST), color = "black", size = 0.2) +  # Fill based on population
   scale_fill_viridis_b(option = "plasma", trans = "log", name = "Population", 
-                       breaks = c(1e6, 1e7, 1e8, 1e9),  # Define readable breaks
-                       labels = c("1M", "10M", "100M", "1B")) +  # Format labels
+                       breaks = c(1e6, 1e7, 1e8, 1e9),  
+                       labels = c("1M", "10M", "100M", "1B")) +  
   theme_minimal() +
   labs(title = "World Population by Country",
        subtitle = "Based on Estimated Population (pop_est)",
        caption = "Source: Natural Earth / Your Dataset") +
-  theme(legend.position = "right",  # Move legend to the right side
-        legend.text = element_text(size = 10),  # Increase text size
-        legend.title = element_text(size = 12, face = "bold"),  # Bold legend title
+  theme(legend.position = "right",  
+        legend.text = element_text(size = 10),  
+        legend.title = element_text(size = 12, face = "bold"),  
         legend.key.height = unit(1, "cm"))  
 ```
 
-```{r plot hist}
-plot_population_distribution <- function(continent_name) {
-  continent_data <- countries %>% filter(CONTINENT == continent_name)
-  
-  ggplot(continent_data, aes(x = reorder(NAME, POP_EST), y = POP_EST)) + 
-    geom_bar(stat = "identity", fill = "steelblue") +  # Bar plot for population
-    labs(title = paste("Population Distribution of", continent_name, "Countries"),
-         x = "Country",
-         y = "Population") +
-    scale_y_continuous(labels = scales::comma) +  # Format y-axis with commas
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1))
-}
+Now we want to aggregate the population from the populated places/ location downloaded from the website so we get the population on country level.
+In order to plot it as a map afterwards we need to get the Multipoligon objects that visualise the shape of the country as well since they are not part of the populated places data. Therefore we use the world package from R to be able to do the plots as we want them and then sum up the population numbers from all the populated places within a country.
+```{r plot aggregated population}
+#data(world)
+#sf.world <- world
 
-# List of continents
-continents <- c("North America", "South America", "Asia", "Europe", "Africa")
+world <- ne_countries(scale = "medium", returnclass = "sf")
 
-# Apply the function to each continent and create the plots
-plot_north_america <- plot_population_distribution("North America")
-plot_south_america <- plot_population_distribution("South America")
-plot_asia <- plot_population_distribution("Asia")
-plot_europe <- plot_population_distribution("Europe")
-plot_africa <- plot_population_distribution("Africa")
+#Only keep the columns in sf.world df that are relevant to this analysis (iso_a2, name_long, and geom)
+sf.world <- sf.world %>%
+  select(iso_a2, name_long, geom, continent)
 
-# Display each plot separately
-print(plot_north_america)
-print(plot_south_america)
-print(plot_asia)
-print(plot_europe)
-print(plot_africa)
+#sum up the pop by country
+summed_population <- locations %>%
+  group_by(iso_a2) %>%
+  summarise(Total_POP_MAX = sum(pop_max, na.rm = TRUE))
+
+summed_population_df <- summed_population %>%
+  st_drop_geometry() 
+
+world_shape_population <- sf.world %>%
+  left_join(summed_population_df, by = "iso_a2") 
+
+
+# Plot the heatmap
+ggplot(data = world_shape_population) +
+  geom_sf(aes(fill = Total_POP_MAX), color = "black", size = 0.2) +  # Fill based on population
+  scale_fill_viridis_c(option = "plasma", trans = "log", na.value = "gray80",
+                       name = "Total Population",  
+                       breaks = c(1e6, 1e7, 1e8, 1e9),  
+                       labels = c("1M", "10M", "100M", "1B")) +  
+  theme_minimal() +  # Cleaner theme
+  labs(
+    title = "World Population by Country",
+    subtitle = "Based on Aggregated Total Population"
+  ) +
+  theme(
+    legend.position = "right",  
+    legend.text = element_text(size = 10),  
+    legend.title = element_text(size = 12, face = "bold"),  
+    legend.key.height = unit(1, "cm"),  
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    plot.caption = element_text(size = 10, hjust = 0)
+  )
 ```
 
+
+## Population Density on continent level 
+Our first attempt to answer this question is to see how much of the population is made up by each country of that continent. We plot the different countries on the x-Axis and the percentege that this country makes up on that continent.
 ```{r hist rel}
 plot_population_distribution <- function(continent_name) {
   continent_data <- countries %>%
@@ -149,7 +179,7 @@ plot_population_distribution <- function(continent_name) {
 }
 
 # List of continents
-continents <- c("North America", "South America", "Asia", "Europe", "Africa")
+continents <- c("North America", "South America", "Asia", "Europe", "Africa", "Oceania")
 
 # Apply the function to each continent and create the plots
 plot_north_america <- plot_population_distribution("North America")
@@ -157,6 +187,7 @@ plot_south_america <- plot_population_distribution("South America")
 plot_asia <- plot_population_distribution("Asia")
 plot_europe <- plot_population_distribution("Europe")
 plot_africa <- plot_population_distribution("Africa")
+plot_oceania <- plot_population_distribution("Oceania")
 
 # Display each plot separately
 print(plot_north_america)
@@ -164,7 +195,70 @@ print(plot_south_america)
 print(plot_asia)
 print(plot_europe)
 print(plot_africa)
+print(plot_oceania)
 ```
+
+Since we are not sure if this answer above is answering the question right, we also try another attempt, in which we plot the numbers of countries and their population.
+We dont know which of these figures we are supposed to do based on the instructions.
+```{r other hist}
+# Perform a join based on the iso_a2 column
+#summed_population <- summed_population %>%
+  #left_join(sf.world[, c( "continent")], by = "iso_a2")
+
+#delete observations with iso codes that dont make sense
+summed_population <- summed_population %>%
+  filter(!(iso_a2 %in% c("-99", "GS")))
+
+# Add continent information using the countrycode library
+summed_population$continent <- countrycode(summed_population$iso_a2, "iso2c", "continent")
+
+# Re-map continent names to match the required list
+summed_population <- summed_population %>%
+  mutate(continent = case_when(
+    continent == "Americas" & iso_a2 %in% c("US", "CA", "MX", "GT", "PA", "CU", "JM", "HN", "NI", "SV", "BZ", "CR", "DO", "HT", "BB", "TT", "BS") ~ "North America",
+    continent == "Americas" ~ "South America",
+    continent == "Oceania" ~ "Australia",
+    TRUE ~ continent
+  ))
+
+
+# Define bin width 
+bin_width_value <- 5000000  
+
+# Histogram of country-level population distribution
+population_plot <- ggplot(summed_population, aes(x = Total_POP_MAX, fill = continent)) +
+  geom_histogram(
+    binwidth = bin_width_value, 
+    color = "black",
+    alpha = 0.8
+  ) +
+  facet_wrap(~ continent, scales = "free_y") +  
+  scale_fill_manual(values = rep(hist_color, 7)) +  
+  scale_x_continuous(labels = label_number(scale = 1e-6, suffix = "", big.mark = ",")) + 
+  x-axis
+  labs(
+    title = "Country Population Distribution by Continent",
+    x = "Population (Millions)",
+    y = "Number of Countries"
+  ) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 12, face = "bold", color = "black"),
+    strip.background = element_blank(),  
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),  
+    axis.text.x = element_text(size = 10, angle = 45, hjust = 1),  
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    legend.position = "none"  
+  )
+
+# Print the plot
+print(population_plot)
+
+```
+
 
 ## Locations
 
@@ -210,14 +304,14 @@ top20_pop <- pop_with_country %>%
 airports <- st_transform(airports, st_crs(world))
 airports_with_country <- st_join(airports, world, join = st_intersects)
 
-airports_with_country$sovereignt
+#airports_with_country$sovereignt
 
 #check how many airports per country
 airport_count_by_country <- airports_with_country %>%
   group_by(sovereignt) %>%
   summarise(airport_count = n())
 
-print(airport_count_by_country)
+#print(airport_count_by_country)
 
 airports_cleaned <- airports_with_country %>%
   filter(!is.na(sovereignt))
@@ -235,8 +329,8 @@ pop_airport_pairs <- top20_pop %>%
   unnest(matching_airports, names_repair = "unique_quiet", names_sep = "_airport") 
 
 # Check what columns we actually have
-print("Columns in pop_airport_pairs:")
-names(pop_airport_pairs)
+#print("Columns in pop_airport_pairs:")
+#names(pop_airport_pairs)
 ```
 
 
@@ -269,7 +363,7 @@ country_avg_distances <- within_country_distances %>%
   arrange(avg_distance_km)
 
 # Let's look at the results
-print(country_avg_distances)
+head(country_avg_distances)
 
 # Create continent-wise data
 continent_distances <- country_avg_distances %>%
@@ -281,7 +375,7 @@ continent_distances <- country_avg_distances %>%
     by = "sovereignt"
   )
 
-print(continent_distances)
+head(continent_distances)
 
 ```
 

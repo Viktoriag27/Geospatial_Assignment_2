@@ -1,0 +1,267 @@
+---
+title: "Geospatial Assignment 3"
+author: "Irache Vergara, Gretchen Moulton, Viktoria Gagua, Daniela Guggenberger"
+date: "2025-02-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# Clear workspace and load necessary libraries
+rm(list = ls())
+
+library(readxl)
+library(sf)
+library(ggplot2)
+library(spData)
+library(terra)
+library(raster)
+library(maps)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(osmdata)
+library(remotes)
+library(RColorBrewer)
+library(gridExtra)
+library(gdistance)
+
+# Load world dataset
+data(world)
+```
+
+# Part 2
+we load shapefiles containing global populated places and road networks.
+```{r setup1}
+# Define base path for GitHub-hosted data
+github_base <- "/vsicurl/https://raw.githubusercontent.com/Viktoriag27/Geospatial_Assignment_2/main/Data"
+
+# Load Natural Earth populated places and roads data
+places <- st_read(paste0(github_base, "/ne_10m_populated_places_simple/ne_10m_populated_places_simple.shp"))
+roads <- st_read(paste0(github_base, "/ne_10m_roads/ne_10m_roads.shp"))
+```
+
+## Including Plots
+We ensure consistency in the spatial reference systems (CRS), select the top 10 most populated places in Spain, filter the road network to include only roads within Spain, and visualize the country's boundaries along with its road network.
+```{r setup2, message=FALSE, warning=FALSE}
+# Filter for Spain
+sf.spain <- world %>% filter(iso_a2 == 'ES')
+
+# Ensure CRS consistency before spatial operations
+places <- st_transform(places, st_crs(sf.spain))
+roads <- st_transform(roads, st_crs(sf.spain))
+
+# Select top 10 populated places in Spain
+top_10_spain <- places %>%
+  filter(adm0name == "Spain") %>%  
+  arrange(desc(pop_max)) %>%    
+  head(10)
+
+# Print top cities
+print(top_10_spain[, c("name", "pop_max")])
+
+# Filter for European roads and extract only Spain's roads
+roads_euro <- roads %>% filter(continent == "Europe") 
+roads_spain <- st_intersection(roads_euro, sf.spain)
+
+# Plot Spain and road network (quick base plot)
+plot(st_geometry(sf.spain), col = "azure2", border = "black")  
+plot(st_geometry(roads_spain), col = "red", add = TRUE)  
+```
+
+## Build Raster
+Now let's create a raster template for Spain to distinguish between roads (low friction) and non-road areas (high friction). In addition, we generate a transition matrix that models movement costs, ensuring realistic travel paths using gdistance. Geo-correction is applied to account for spatial distortions in distance calculations.
+```{r setup3}
+# Create a raster template for Spain with desired resolution
+r.template <- rast(ext = ext(sf.spain), resolution = 0.05)
+crs(r.template) <- st_crs(sf.spain)$proj4string  # Set CRS
+
+# Rasterize the roads
+roads_rast <- rasterize(vect(roads_spain), r.template, field = 1, background = 1000, update = TRUE)
+
+# Quick plot of the rasterized roads (1 = road; 1000 = off-road)
+plot(roads_rast, main = "Friction Surface: Roads = 1; Off-road = 1000")
+
+# Convert the terra SpatRaster to a RasterLayer
+roads_rast_r <- raster(roads_rast)
+
+## Build Transition Matrix with gdistance
+# Create a transition matrix where movement cost is the reciprocal of the friction
+tr_matrix <- transition(roads_rast_r, 
+                        transitionFunction = function(x) {
+                          return(1/mean(x))
+                        },
+                        directions = 8
+)
+
+# Apply geo-correction to adjust for cell geometry and distances
+tr_matrix <- geoCorrection(tr_matrix, type = "c")
+```
+
+## Calculate Shortest Path Distances Among Top Cities
+We compute the shortest road distances between the top 10 most populated cities in Spain. We start by creating a symmetric distance matrix and converting city locations into SpatialPoints for use with gdistance. A nested loop iterates through each unique city pair, using the transition matrix to calculate the shortest path while handling errors gracefully. The computed distances are stored in the matrix, and the corresponding paths are saved for visualization. Finally, we print the completed distance matrix, which provides insights into the road connectivity between major Spanish cities.
+```{r setup4}
+# Number of cities and names for matrix labeling
+num_cities <- nrow(top_10_spain)
+city_names <- top_10_spain$name
+
+# Create an empty symmetric matrix to store distances
+distance_matrix <- matrix(NA, nrow = num_cities, ncol = num_cities, 
+                          dimnames = list(city_names, city_names))
+
+# Convert cities to SpatialPoints (required for shortestPath)
+sp_cities <- lapply(1:num_cities, function(i) as(top_10_spain[i, ], "Spatial"))
+
+# Optional: Storage for computed paths (for visualization)
+stored_paths <- vector("list", num_cities)
+
+# Loop through each unique pair of cities to compute the shortest road path
+for (i in 1:(num_cities - 1)) {
+  stored_paths[[i]] <- vector("list", num_cities)
+  
+  for (j in (i + 1):num_cities) {
+    
+    sp_distance <- try(
+      shortestPath(
+        x = tr_matrix,
+        origin = sp_cities[[i]],  
+        goal = sp_cities[[j]],    
+        output = "SpatialLines"
+      ), silent = TRUE
+    )
+    
+    # Skip pairs where the path could not be computed
+    if (inherits(sp_distance, "try-error")) next
+    
+    # Convert result to an sf object and ensure CRS consistency
+    sp_distance_sf <- st_as_sf(sp_distance)
+    st_crs(sp_distance_sf) <- st_crs(top_10_spain)
+    
+    # Calculate and store the path length in the symmetric matrix
+    path_length <- as.numeric(st_length(sp_distance_sf))
+    distance_matrix[i, j] <- path_length
+    distance_matrix[j, i] <- path_length
+    
+    # Store the computed path for later visualization if needed
+    stored_paths[[i]][[j]] <- sp_distance_sf
+  }
+}
+
+# Print the resulting distance matrix
+print(distance_matrix)
+```
+
+## Visualize the Map with the Computed Distances
+We prepare the computed shortest paths for visualization by merging all valid routes into a single spatial object. We then identify Madrid and Vigo among the top cities and retrieve their shortest path. To ensure accurate distance representation, we reproject the Madrid-Vigo route to a projected coordinate system, segmentize it to create more vertices, and sample the midpoint. Finally, we transform the midpoint back to the original coordinate system for proper placement on the map.
+```{r setup5}
+# Combine all computed paths into one sf object for plotting
+all_paths_list <- lapply(stored_paths, function(x) {
+  valid <- x[!sapply(x, is.null)]
+  if(length(valid) > 0) do.call(rbind, valid) else NULL
+})
+all_paths <- do.call(rbind, all_paths_list)
+
+# Identify Madrid and Vigo among the top cities (if present)
+madrid_index <- which(top_10_spain$name == "Madrid")
+vigo_index   <- which(top_10_spain$name == "Vigo")
+madrid_vigo_path <- NULL
+madrid_vigo_distance <- NA
+midpoint <- NULL
+
+if(length(madrid_index) == 1 && length(vigo_index) == 1) {
+  i <- min(madrid_index, vigo_index)
+  j <- max(madrid_index, vigo_index)
+  if(!is.null(stored_paths[[i]][[j]])) {
+    madrid_vigo_path <- stored_paths[[i]][[j]]
+    madrid_vigo_distance <- distance_matrix[i, j]
+    
+    # Reproject to a projected CRS (EPSG:3857 used here as an example)
+    projected_path <- st_transform(madrid_vigo_path, 3857)
+    
+    # Option 1: Segmentize the path to create more vertices for sampling
+    projected_path_seg <- st_segmentize(projected_path, dfMaxLength = 10000)  # adjust maximum segment length as needed
+    
+    # Compute midpoint along the segmentized line
+    midpoint_proj <- st_line_sample(projected_path_seg, sample = 0.5)
+    
+    # Transform midpoint back to the original CRS
+    midpoint <- st_transform(midpoint_proj, st_crs(top_10_spain))
+    midpoint <- st_cast(midpoint, "POINT")
+  }
+}
+```
+
+### Map of Shortest Road Paths
+Using ggplot2, we plot Spain’s boundaries, overlay the road network, and display the computed shortest paths in blue.
+
+```{r setup6}
+# Assign colors to cities for the legend
+top_10_spain$category <- factor(
+  case_when(
+    top_10_spain$name == "Madrid" ~ "Madrid",
+    top_10_spain$name == "Vigo" ~ "Vigo",
+    TRUE ~ "Other cities"
+  ),
+  levels = c("Madrid", "Vigo", "Other cities")  # Ensure correct order in legend
+)
+
+
+p <- ggplot() +
+  geom_sf(data = sf.spain, fill = "#EEEEEE", color = "#666666") +  
+  geom_sf(data = roads_spain, color = "#666666", size = 0.5) +  # Black roads
+  geom_sf(data = all_paths, color = "#1B98E0FF", size = 1, alpha = 0.5) +  # Blue shortest paths
+  geom_sf(data = madrid_vigo_path, color = "red", size = 1.5) +  # Red Madrid-Vigo path
+  geom_sf(data = top_10_spain, aes(fill = category, color = category), 
+          size = 3, shape = 21, stroke = 1.2) +  
+  scale_fill_manual(
+    name = "City", 
+    values = c("Madrid" = "#F8766D", "Vigo" = "#FFD700", "Other cities" = "#00BFC4"),
+    labels = c("Madrid", "Vigo", "Other cities")
+  ) +
+  scale_color_manual(  # Ensure color matches fill
+    name = "City", 
+    values = c("Madrid" = "#F8766D", "Vigo" = "#FFD700", "Other cities" = "#00BFC4"),
+    labels = c("Madrid", "Vigo", "Other cities")
+  ) +
+  ggtitle("Shortest Road Paths") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))  # Center the title
+
+print(p)
+```
+
+### Density plot
+We create a density plot to compare the distribution of distances, using distinct colors for Madrid (red) and Vigo (blue) to visualize which city is more geographically isolated.
+```{r setup7}
+# Convert distances from meters to kilometers
+distance_matrix <- distance_matrix / 1000  # Convert to km
+
+# Convert distance matrix to a tidy dataframe
+distance_df <- as.data.frame(as.table(distance_matrix))
+colnames(distance_df) <- c("origin", "destination", "distance")
+
+# Remove self-distances (where origin == destination)
+distance_df <- distance_df %>% filter(origin != destination)
+
+# Assign origin group (Madrid or Vigo)
+distance_df <- distance_df %>%
+  mutate(origin_group = case_when(
+    origin == "Madrid" ~ "Madrid",
+    origin == "Vigo" ~ "Vigo",
+    TRUE ~ NA_character_  # Ignore other origins
+  )) %>%
+  filter(!is.na(origin_group))  # Keep only distances from Madrid or Vigo
+
+# Plot density graph
+ggplot(distance_df, aes(x = distance, fill = origin_group, color = origin_group)) +
+  geom_density(alpha = 0.3) +
+  scale_fill_manual(values = c("Madrid" = "#F8766D", "Vigo" = "#00BFC4")) + 
+  scale_color_manual(values = c("Madrid" = "#F8766D", "Vigo" = "#00BFC4")) + 
+  labs(x = "Distance (KM)", y = "Density", fill = "Origin", color = "Origin") +
+  theme_minimal()
+```
+
+Madrid's distribution (red) is more concentrated at shorter distances, indicating that most major cities are relatively close. In contrast, Vigo's distribution (blue) is more spread out, with a notable peak at longer distances, suggesting that many key locations are farther away. This means Vigo is more geographically isolated compared to Madrid, as its shortest road distances to other major cities tend to be significantly greater.
+
+
