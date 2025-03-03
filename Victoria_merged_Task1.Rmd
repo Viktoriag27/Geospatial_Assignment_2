@@ -19,6 +19,7 @@ library(RColorBrewer)
 library(gridExtra)
 library(rnaturalearth)
 library(rnaturalearthdata)
+library(tidyr)
 ```
 
 ## Load data
@@ -161,16 +162,26 @@ ggplot() +
 
 ## Average Distances' Histogram (Airports)
 
-```{r, echo=TRUE, message=FALSE, warning=FALSE}
-# ----- 1. Assign a Country to Each Location -----
-# Here we only extract a couple of fields needed
 
+```{r}
 world <- ne_countries(scale = "medium", returnclass = "sf")
+# Spatially join the population table with world to add country info
+pop_with_country <- st_join(pop, 
+                            world[, c("sovereignt", "continent")],
+                            join = st_intersects)
 
-locations_with_country <- st_join(locations, world[, c("sovereignt", "continent")], join = st_intersects)
+# Remove any rows that did not join to a country
+pop_with_country <- pop_with_country %>% 
+  filter(!is.na(sovereignt))
 
-# Remove any locations that did not join to a country
-locations_with_country <- locations_with_country %>% filter(!is.na(sovereignt))
+# For each country, select the top 20 populated locations (using POP_MAX)
+top20_pop <- pop_with_country %>%
+  group_by(sovereignt) %>%                # Group by country name
+  slice_max(order_by = POP_MAX,           # Order each group by the POP_MAX column
+            n = 20,                     # Keep the top 20
+            with_ties = FALSE) %>%       # Exclude ties beyond the 20th entry
+  ungroup()
+
 ```
 
 ### Airports
@@ -182,7 +193,6 @@ airports_with_country <- st_join(airports, world, join = st_intersects)
 
 airports_with_country$sovereignt
 
-
 #check how many airports per country
 airport_count_by_country <- airports_with_country %>%
   group_by(sovereignt) %>%
@@ -190,123 +200,99 @@ airport_count_by_country <- airports_with_country %>%
 
 print(airport_count_by_country)
 
-
-#check which have more than 20
-countries_with_more_than_20_airports <- airport_count_by_country %>%
-  filter(airport_count > 20)
-
-print(countries_with_more_than_20_airports)
-
-
-#check which airports didnt get a country assigned
-airports_with_na_sovereignt <- airports_with_country %>%
-  filter(is.na(sovereignt))
-
-print(airports_with_na_sovereignt)
-
-
-# there is 69 airports that didnt get a country assigned, as I see for now mostry because they 
-#are some small islands or simmilar
-# for now delete them; handle /include them at a later point
-
 airports_cleaned <- airports_with_country %>%
   filter(!is.na(sovereignt))
 ```
-
 ```{r}
-# ----- 2. Subset Airports: 20 Airports per Country -----
-# We already have airports with country info in 'airports_cleaned'.
-# Now, for each country, select only 20 airports (if there are more than 20).
-airports_subset <- airports_cleaned %>%
+
+# First, let's see what columns we have in airports_cleaned
+print("Columns in airports_cleaned:")
+names(airports_cleaned)
+
+# Now let's check step by step
+pop_airport_pairs <- top20_pop %>%
   group_by(sovereignt) %>%
-  slice_head(n = 20) %>%   # or slice_sample(n = 20) for a random sample
-  ungroup()
+  mutate(matching_airports = list(airports_cleaned[airports_cleaned$sovereignt == first(sovereignt), ])) %>%
+  unnest(matching_airports, names_repair = "unique_quiet", names_sep = "_airport") 
+
+# Check what columns we actually have
+print("Columns in pop_airport_pairs:")
+names(pop_airport_pairs)
 ```
 
+
+
 ```{r}
-# ----- 3. Project Both Layers to a Metric CRS -----
-# Use EPSG:3857 (meters) for distance calculations.
-airports_proj <- st_transform(airports_subset, crs = 3857)
-locations_proj <- st_transform(locations_with_country, crs = 3857)
+
+within_country_distances <- pop_airport_pairs %>%
+  select(
+    sovereignt,
+    city = NAME,
+    airport = matching_airports_airportname.x,
+    geometry,
+    geometry_airport = matching_airports_airportgeometry
+  ) %>%
+  rowwise() %>%  # Process each row individually
+  mutate(
+    distance_km = as.numeric(st_distance(geometry, geometry_airport))/1000
+  ) %>%
+  ungroup() %>%  # Remove rowwise grouping
+  arrange(sovereignt, distance_km)
 ```
 
-```{r}
-# ----- 4. Compute the Nearest-Location Distance for Each Airport -----
-# For each airport, we find the distance to the closest location in the same country.
-# We group by country so that each airport is only compared to locations from the same country.
 
-airports_with_distance <- airports_proj %>%
+```{r}
+country_avg_distances <- within_country_distances %>%
   group_by(sovereignt) %>%
-  group_modify(~ {
-    this_country <- .y$sovereignt
-    # Filter locations from the same country, explicitly using .data$sovereignt
-    locs_country <- locations_proj %>% 
-      filter(.data$sovereignt == this_country)
-    
-    if (nrow(locs_country) == 0) {
-      .x$nearest_location_distance <- NA_real_
-    } else {
-      # Compute distance matrix (in meters)
-      dmat <- st_distance(.x, locs_country)
-      # For each airport, select the minimum distance
-      .x$nearest_location_distance <- apply(dmat, 1, min)
-    }
-    .x  # Return the modified group data
-  }) %>%
-  ungroup()
+  summarise(
+    avg_distance_km = mean(distance_km)
+  ) %>%
+  arrange(avg_distance_km)
 
-# Convert to kilometers:
-airports_with_distance <- airports_with_distance %>%
-  mutate(nearest_location_km = nearest_location_distance / 1000)
+# Let's look at the results
+print(country_avg_distances)
 
-# The results
-print(airports_with_distance)
+# Create continent-wise data
+continent_distances <- country_avg_distances %>%
+  left_join(
+    pop_airport_pairs %>% 
+      st_drop_geometry() %>%  # Remove the geometry to make it a regular dataframe
+      select(sovereignt, continent) %>% 
+      distinct(),
+    by = "sovereignt"
+  )
+
+print(continent_distances)
+
 ```
+
 
 ```{r}
-# ----- 5. Inspect the Results -----
-print(airports_with_distance)
 
 
-if (!"nearest_location_km" %in% names(airports_with_distance)) {
-  airports_with_distance <- airports_with_distance %>%
-    mutate(nearest_location_km = nearest_location_distance / 1000)
-}
+ggplot(continent_distances, aes(x = avg_distance_km)) +
+  geom_histogram(bins = 10, fill = "red", color = "black") +
+  facet_wrap(~continent) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 0.5, size = 8),  
+    axis.text.y = element_text(size = 8),  
+    strip.text = element_text(size = 10),  # Continent labels size
+    panel.grid.minor = element_blank(),    
+    plot.title = element_text(size = 14)   # Title size
+  ) +
+  scale_x_continuous(
+    breaks = seq(0, 4000, by = 1000),    
+    labels = seq(0, 4000, by = 1000)      
+  ) +
+  scale_y_continuous(
+    breaks = seq(0, 25, by = 5)           # Set specific y-axis breaks
+  ) +
+  labs(
+    x = "Average Distance (km)",
+    y = "Count",
+    title = "Distribution of Average Airport Distances by Continent"
+  )
 
-# Aggregate: compute the average distance per country
-country_avg_distance <- airports_with_distance %>%
-  st_drop_geometry() %>%
-  group_by(sovereignt, continent) %>%
-  summarise(avg_distance_km = mean(nearest_location_km, na.rm = TRUE)) %>%
-  ungroup()
-# Inspect the summary
-print(country_avg_distance)
-```
-
-### Zoomed in on 200 km
-
-```{r, echo=TRUE, message=FALSE, warning=FALSE}
-ggplot(country_avg_distance, aes(x = avg_distance_km)) +
-  geom_histogram(binwidth = 10, fill = "orange", color = "black") +
-  coord_cartesian(xlim = c(0, 200)) +   # <--- Zoomed in on 200 km
-  facet_wrap(~ continent, scales = "free_y") +
-  labs(title = "Histogram of Country-Level Average Distances",
-       x = "Average Distance (km)",
-       y = "Number of Countries") +
-  theme_minimal()
-
-```
-
-### Zoomed in on 100 km
-
-```{r, echo=TRUE, message=FALSE, warning=FALSE}
-ggplot(country_avg_distance, aes(x = avg_distance_km)) +
-  geom_histogram(binwidth = 10, fill = "red", color = "black") +
-  coord_cartesian(xlim = c(0, 100)) +   # <--- Zoomed in on 100 km
-  facet_wrap(~ continent, scales = "free_y") +
-  labs(title = "Histogram of Country-Level Average Distances",
-       x = "Average Distance (km)",
-       y = "Number of Countries") +
-  theme_minimal()
-
+## THE OUTLIERS IN THE HISTOGRAMS ARE PRESENT SINCE THERE ARE COUNTED THE TERRITORIES WHICH BELONG TO EUROPEAN COUNTRIES, FOR EXAMPLE QUEEN BEATRIZ INTERNATIONAL AIRPORT SO OUR FUNCTION CALCULATES DISTANCE BETWEEN AMSTERDAM AND DUTCH CARIBBEAN ISLAND OF ARUBA
 ```
