@@ -1,0 +1,269 @@
+---
+title: "Geospatial Data Science Assignment 3 - Task 1"
+author: "Daniela and Viktoria"
+date: "2025-02-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Task 1
+
+## Load libraries
+
+```{r}
+# install.packages(c("tidyverse", "sf", "raster", "SPEI", "ncdf4", "tigris", "ggplot2", "sf", "dplyr", "ncdf4"))
+library(tidyverse)   # Data manipulation
+library(sf)          # Spatial data handling
+library(raster)      # Working with raster climate data
+library(SPEI)        # Calculating SPEI
+library(ncdf4)       # Reading NetCDF climate data
+library(tigris)
+library(ggplot2)
+library(sf)
+library(dplyr)
+library(ncdf4)
+```
+
+## Load Data and Plot Mainland US
+We use data about the information of the US-states from the tigris library. Before doing anything else, we restrict the states we use, so it matches the instructions (exclude Alasska, Hawaii, smaller islands, ...).
+```{r, echo=TRUE, message=FALSE, warning=FALSE, results='hide'}
+Sys.setenv("VROOM_SHOW_PROGRESS" = "false") # Disables progress bar
+
+# Load US states
+us_states <- suppressMessages(suppressWarnings(states(cb = TRUE, year = 2023)))
+
+#Since the US also has some islands and Alaska as part of it which are NOT part 
+#of the Regions we are supposed to create, we have to get rid of them 
+us_contiguous <- us_states %>%
+  filter(!STUSPS %in% c("AK", "HI", "PR", "GU", "VI", "MP", "AS"))
+```
+
+```{r}
+# Plot the cleaned-up contiguous U.S.
+ggplot(data = us_contiguous) +
+  geom_sf(fill = "lightblue", color = "black") +
+  labs(title = "Mainland US") +
+  theme_minimal()
+```
+
+## Data Preprocessing
+
+Since we are asked to perform regional level operations, we split the states into northeast, midwest, south and west. 
+
+```{r}
+#Since the instructions ask us to recieve a SPEI index on REGIONAL level, we 
+#have to split up our states in the wanted regions
+us_regions <- us_contiguous %>%
+  mutate(region = case_when(
+    STUSPS %in% c("ME", "NH", "VT", "MA", "RI", "CT", "NY", "NJ", "PA") ~ "Northeast",
+    STUSPS %in% c("OH", "IN", "IL", "MI", "WI", "MN", "IA", "MO", "ND", "SD", "NE", "KS") ~ "Midwest",
+    STUSPS %in% c("DE", "MD", "DC", "VA", "WV", "KY", "NC", "SC", "GA", "FL", 
+                  "TN", "AL", "MS", "AR", "LA", "OK", "TX") ~ "South",
+    STUSPS %in% c("MT", "ID", "WY", "CO", "NM", "AZ", "UT", "NV", "WA", "OR", "CA") ~ "West",
+    TRUE ~ NA_character_ # Ensure no other states are included
+  ))
+
+# Check the data to confirm regions
+table(us_regions$region)
+
+#plot US divided in the regions
+ggplot(data = us_regions) +
+  geom_sf(aes(fill = region), color = "black") +
+  scale_fill_manual(values = c(
+    "Northeast" = "#D55E00",  
+    "Midwest" = "#009E73",   
+    "South" = "#56B4E9",     
+    "West" = "#CC79A7"
+  )) +
+  labs(title = "U.S. Regions", fill = "Region") +
+  theme_minimal()
+```
+
+## US Regions as Combined Polygons
+
+To perform calculations on regional level, we combine the states within a region together to one polygon each. 
+
+```{r}
+#Now we have the regions we actually have to combine the states within a region 
+#together so we end up with only 1 polygon per region
+us_regions_combined <- us_regions %>%
+  group_by(region) %>%
+  summarize(geometry = st_union(geometry), .groups = "drop")
+
+# Check the result
+#print(us_regions_combined)
+
+#plot combined regions
+ggplot(data = us_regions_combined) +
+  geom_sf(aes(fill = region), color = "black") +
+  scale_fill_manual(values = c(
+    "Northeast" = "#D55E00",  
+    "Midwest" = "#009E73",   
+    "South" = "#56B4E9",     
+    "West" = "#CC79A7"
+  )) +
+  labs(title = "U.S. Regions as Combined Polygons", fill = "Region") +
+  theme_minimal()
+
+```
+
+## Filtering 50 years and Cropping SPEI Data for US Regions
+
+For the Speix data we need to extract the last 50 years of observations and allingn them to the region they belong to. 
+```{r}
+#Load the SPEI index data 
+spei_data <- brick("~/Desktop/Victoria/DSDM/Term2/Geospatial/Assignment_3/PS3/data/spei01.nc")
+
+# Check the dimensions of the raster brick 
+print(dim(spei_data))
+
+# Get the time values (this should correspond to each layer in spei_data)
+time_values <- getZ(spei_data)
+
+# Extract the date part of the names (remove 'X' and convert to Date)
+time_dates <- as.Date(gsub("^X", "", names(spei_data)), format="%Y.%m.%d")
+
+# Check the result
+#print(time_dates)
+
+
+#The instructions wants us to only look at the last 50 years
+#To filter out the last 50 years we need to check 
+#tail(time_values) # We see the data is monthly and the last entry was "2023-12-16"
+#Therefore to get the last 50 years (600months) we need to do the following
+#set an end date
+end_date <- as.Date("2023-12-16")
+#and a starting date 
+start_date <- end_date - months(600)
+
+# Filter the data to the dates we just found
+time_filtered <- time_dates[time_dates >= start_date & time_dates <= end_date]
+
+# Find the layer indices for the filtered time values
+matching_layers <- which(time_dates %in% time_filtered)
+
+# Subset the raster data using the matching layers
+spei_filtered <- spei_data[[matching_layers]]
+
+# Check the dimensions of the filtered raster data
+print(dim(spei_filtered))
+
+
+# Now we have only the last 50 years of SPEIX data left, but now we still need to crop it 
+# so we only have to data that matches the US map we already have left.
+# seperating in Regions
+
+# Ensure your us_contiguous object is in the correct coordinate system (CRS) for the raster data
+us_contiguous <- st_transform(us_contiguous, crs = crs(spei_filtered))
+
+# Crop the spei_filtered raster to the extent of the US states (us_contiguous)
+spei_cropped <- crop(spei_filtered, extent(us_contiguous))
+
+plot(spei_cropped)
+
+# Crop the spei_filtered raster to the extent of the combined regions
+spei_cropped_regions <- crop(spei_filtered, extent(us_regions_combined))
+
+# Plot the cropped raster data for the regions
+#plot(spei_cropped_regions)
+print(dim(spei_cropped_regions))
+
+
+# If using regions, you can do the same:
+spei_masked_regions <- mask(spei_cropped_regions, us_regions_combined)
+
+# Plot the masked raster data
+plot(spei_masked_regions)
+
+print(dim(spei_masked_regions))
+
+#SPEIX by region 
+# Mask the cropped raster by the region
+spei_masked_northeast <- mask(spei_cropped, us_regions_combined[us_regions_combined$region == "Northeast", ])
+spei_masked_midwest <- mask(spei_cropped, us_regions_combined[us_regions_combined$region == "Midwest", ])
+spei_masked_south <- mask(spei_cropped, us_regions_combined[us_regions_combined$region == "South", ])
+spei_masked_west <- mask(spei_cropped, us_regions_combined[us_regions_combined$region == "West", ])
+
+#just to check
+#print(dim(spei_masked_midwest))
+#plot(spei_masked_northeast)
+```
+
+## Panel Data
+
+```{r}
+#-------------------------------
+# Calculate the mean SPEI index for each region at each time step
+#-------------------------------
+
+# Create a time vector corresponding to the filtered dates
+time_vector <- time_filtered
+
+# Calculate the mean SPEI (ignoring NA values) for each time layer and region
+spei_ne_mean <- cellStats(spei_masked_northeast, stat = 'mean', na.rm = TRUE)
+spei_mw_mean <- cellStats(spei_masked_midwest, stat = 'mean', na.rm = TRUE)
+spei_s_mean  <- cellStats(spei_masked_south, stat = 'mean', na.rm = TRUE)
+spei_w_mean  <- cellStats(spei_masked_west, stat = 'mean', na.rm = TRUE)
+
+#---------------------------------------------
+#   Build a "panel" data frame
+#    date x region -> SPEI time series
+#---------------------------------------------
+spei_df <- data.frame(
+  date   = rep(time_vector, times = 4),
+  SPEI   = c(spei_ne_mean, spei_mw_mean, spei_s_mean, spei_w_mean),
+  region = rep(c("Northeast", "Midwest", "South", "West"), each = length(time_vector))
+)
+
+# Calculate the overall average SPEI across all regions for each time step
+overall_df <- spei_df %>%
+  group_by(date) %>%
+  summarize(overall_SPEI = mean(SPEI, na.rm = TRUE))
+
+#overall_df
+```
+
+```{r}
+# Quick check of the panel structure
+head(spei_df)
+tail(spei_df)
+
+```
+
+## Evolution of SPEI Index
+
+Plotting the evolution of SPEI for each region and the overall trend
+
+```{r}
+
+## Final plot
+p <- ggplot() +
+  # Plot individual region time series
+  geom_line(data = spei_df, aes(x = date, y = SPEI, color = region)) +
+  # Add a smoothed line for the overall average across regions
+  geom_smooth(
+    data   = overall_df, 
+    aes(x = date, y = overall_SPEI),
+    color  = "black", 
+    linewidth = 0.8, 
+    se     = FALSE, 
+    method = "loess",
+    span   = 0.4    # <-- smaller span reduces the smoothing
+  ) +
+  scale_y_continuous(
+    breaks = c(-1, 0, 1)  # Only show ticks at -1, 0, and 1
+  ) + 
+  labs(
+    title    = "Evolution of SPEI Index by Region",
+    subtitle = "Black line shows the overall smoothed average across regions",
+    x        = "Date", 
+    y        = "SPEI Index",
+    color    = "Region"
+  ) +
+  theme_minimal()
+
+print(p)
+```
